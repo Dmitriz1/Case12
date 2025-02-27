@@ -1,76 +1,144 @@
 # Expense Tracker - Трекер трат
 
-## Описание
-Простое приложение для учета личных расходов с веб-интерфейсом. Позволяет:
-- Добавлять траты с категорией, суммой и датой
-- Просматривать отчеты:
-  - Самую "дорогую" категорию месяца
-  - Крупнейшую трату в категории за месяц
+![Build Status](https://img.shields.io/github/actions/workflow/status/username/repository/main.yml)
+![License](https://img.shields.io/github/license/username/repository)
+![Coverage](https://img.shields.io/codecov/c/github/username/repository)
+![GitHub tag](https://img.shields.io/github/v/tag/username/repository)
+___
 
-## API
+## Оглавление
+1. [Описание проекта](#описание-проекта)
+2. [Функционал](#функционал)
+3. [Структура проекта](#структура-проекта)
+4. [Требования](#требования)
+5. [Установка и запуск](#установка-и-запуск)
+6. [Работа с Git для новичков](#работа-с-git-для-новичков)
+7. [Авторы](#авторы)
 
-### Добавление траты
-- Тут будет текст, когда сделаем проект
+---
 
-## Технологии
-- Python
-- MongoDB
+## Описание проекта
+**Expense Tracker** — это простой сервис для отслеживания личных расходов, написанный на Python. Он обеспечивает RESTful API и даёт возможность:
+
+1. **Добавлять** новую трату с указанием:
+   - Названия (текст)
+   - Категории (текст)
+   - Суммы (число)
+   - Даты (в формате «день.месяц», например `15.03`)
+
+2. **Показывать**:
+   - Самую затратную категорию за выбранный месяц
+   - Самую крупную трату за выбранный месяц в выбранной категории
+
+Проект поможет научиться:
+- Организации клиент-серверного приложения на Python
+- Основам работы с базой данных (MongoDB)
+- Написанию тестов
+- Основам командной работы с Git
+
+---
+
+## Функционал
+1. **Добавление траты**: `POST /expenses`
+   - Тело запроса (JSON): 
+     ```json
+     {
+       "name": "Молоко",
+       "category": "Еда",
+       "amount": 100,
+       "date": "15.03"
+     }
+     ```
+   - Ответ: 200 (OK) при успешном добавлении
+   
+2. **Получение самой затратной категории** за месяц: `GET /stats/most-expensive-category?month=03`
+   - Параметр `month` указывается числом, например `03` (март).
+   - Ответ (JSON):
+     ```json
+     {
+       "category": "Еда",
+       "total_amount": 1000
+     }
+     ```
+   - Если в выбранном месяце нет трат, то возвращается пустой ответ с кодом 204 (No Content)
+
+3. **Получение самой крупной траты** в конкретной категории и месяце:  
+   `GET /stats/biggest-expense?month=03&category=Еда`
+   - Параметры `month` и `category`.
+   - Ответ (JSON):
+     ```json
+     {
+       "name": "Молоко",
+       "amount": 500,
+       "date": "15.03"
+     }
+     ```
+   - Если в выбранном месяце нет трат в данной категории, то возвращается пустой ответ с кодом 204 (No Content)
+
+_(Формат и сами эндпоинты могут меняться по ходу разработки. Здесь просто пример.)_
+
+---
+
+## Структура проекта
+
+```plaintext
+Case12/
+├── .github/
+│   └── workflows/              # Конфигурации CI/CD (GitHub Actions) 
+├── app/                        # Основной пакет приложения
+│   ├── __init__.py
+│   ├── config.py               # Конфигурация (например, параметры БД, порты и т.д.)
+│   ├── main.py                 # Точка входа приложения
+│   └── modules/                # Модули приложения
+│       ├── dal/                # Data Access Layer
+│       │   ├── __init__.py
+│       │   └── dal.py
+│       ├── server/             # HTTP-сервер (роуты, обработка запросов)
+│       │   ├── __init__.py
+│       │   └── server.py
+│       └── services/           # Бизнес-логика (операции, расчёты и т.д.)
+│           ├── __init__.py
+│           └── services.py
+├── static/
+│   ├── index.html              # Простой HTML-файл для отображения (веб-интерфейс)
+│   └── style.css               # Стили
+├── tests/                      # Тесты (unit-тесты, e2e и т.д.)
+│   ├── __init__.py
+│   ├── test_dal.py             # Тесты для DAL
+│   ├── test_server.py          # Тесты для сервера
+│   └── test_services.py        # Тесты для бизнес-логики
+├── requirements.txt            # Список зависимостей (например, pymongo)
+├── .gitignore                  # Файлы/папки, игнорируемые Git
+├── README.md                   # Документация (текущий файл)
+├── Makefile                    # Makefile для удобных команд
+├── .black                      # Конфигурация для Black formatter
+├── .flake8                     # Конфигурация для Flake8
+├── pytest.ini                  # Конфигурация для pytest
+├── .pre-commit-config.yaml     # Конфигурация для pre-commit hooks
+├── .isort.cfg                  # Конфигурация для isort
+└── mypy.ini                    # Конфигурация для mypy (если используется статическая типизация)
+```
+
+___
+
 
 ## Требования
 1. Python 3.12.6+
-2. MongoDB (локально или через Docker)
-3. Библиотеки из `requirements.txt`
+2. MongoDB
+3. GIT
+4. Браузер Google Chrome/Firefox
 
-## Установка
-1. Клонируйте репозиторий:
-   ```bash
-   git clone https://github.com/Dmitriz1/Case12.git
-   cd expense-tracker
+___
 
-## Запуск
-1. Установите виртуальное окружение:
-   - Linux/MacOS
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-   - Windows
-   ```bash
-   python -m venv venv
-   .\venv\Scripts\activate
-   ```
+## Установка и запуск
 
-2. Установите зависимости:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Запустите приложение:
-   ```bash
-   python main.py
-   ```
+Подробные инструкции по установке, настройке виртуального окружения и запуску проекта доступны в [Wiki](https://github.com/YourRepositoryName/wiki/Setup).
+___
 
-## Работа с GIT
+## Работа с Git для новичков
 
-1. Клонируйте репозиторий:
-   ```bash
-   git clone https://github.com/Dmitriz1/Case12.git
-   cd expense-tracker
-   ```
-
-2. Обновите репозиторий:
-   ```bash 
-   git pull origin <название ветки> # git pull origin <название ветки>
-   ```   
-
-3. Пушите изменения:
-   ```bash
-   git add . # или git add <название файла>
-   git commit -m "Commit message" # git commit -m "Что было изменено"
-   git push oigin <название ветки> # git push origin <название вашей ветки>
-   ```
-
-4. Создайте pull request в GitHub
-
+Руководство по работе с Git, включая создание веток, пулл-реквесты и другие best practices, можно найти в [Wiki](https://github.com/YourRepositoryName/wiki/Git-Workflow).
+___
 
 ## Автор
 - Гусманов Михаил
