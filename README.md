@@ -132,12 +132,12 @@ ___
 
 ## Установка и запуск
 
-Подробные инструкции по установке, настройке виртуального окружения и запуску проекта доступны в [Wiki](https://github.com/YourRepositoryName/wiki/Setup).
+Подробные инструкции по установке, настройке виртуального окружения и запуску проекта доступны в [Wiki](https://github.com/Dmitriz1/Case12/wiki/Setup.md).
 ___
 
 ## Работа с Git для новичков
 
-Руководство по работе с Git, включая создание веток, пулл-реквесты и другие best practices, можно найти в [Wiki](https://github.com/YourRepositoryName/wiki/Git-Workflow).
+Руководство по работе с Git, включая создание веток, пулл-реквесты и другие best practices, можно найти в [Wiki](https://github.com/Dmitriz1/Case12/wiki/Git.md).
 ___
 
 ## Автор
