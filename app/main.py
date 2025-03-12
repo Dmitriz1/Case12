@@ -2,6 +2,8 @@ import json
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+from unicodedata import category
+
 
 class Handler(BaseHTTPRequestHandler):
     def not_found(self):
@@ -26,6 +28,13 @@ class Handler(BaseHTTPRequestHandler):
                     <label>
                         <span>Название траты</span>
                         <input type="text" name="expense_name" class="data__field">
+                    </label>
+                </div>
+                
+                <div class="form__data">
+                    <label>
+                        <span>Категория</span>                                    
+                        <input type="text" name="category" class="data__field">
                     </label>
                 </div>
 
@@ -82,8 +91,10 @@ class Handler(BaseHTTPRequestHandler):
 
         new_expense = {
             "expense_name": post_data.get("expense_name", [""])[0],
+            "category": post_data.get("category", [""])[0],
             "amount": post_data.get("amount", [""])[0],
             "date": post_data.get("date", [""])[0]
+
         }
 
         try:
