@@ -2,7 +2,6 @@ import urllib.parse
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from tkinter.font import names
-from datetime import datetime
 from pymongo.errors import ServerSelectionTimeoutError
 from pymongo import MongoClient
 from .config import *
