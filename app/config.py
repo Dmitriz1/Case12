@@ -1,6 +1,6 @@
-MONGODB_HOST = 'localhost'
+MONGODB_HOST = "localhost"
 MONGODB_PORT = 27017
-MONGODB_DB = 'db'
-MONGODB_COLLECTION = 'expenses'
+MONGODB_DB = "db"
+MONGODB_COLLECTION = "expenses"
 LOGIN = "projectuser"
 PASSWORD = "DDDDdddd4444"
