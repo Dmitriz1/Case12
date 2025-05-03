@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import bson
 from bson import ObjectId
-from config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
+from .config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 

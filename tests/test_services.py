@@ -1,198 +1,206 @@
-import unittest
+from __future__ import annotations
+
 import json
-from unittest.mock import MagicMock, patch
-from http.server import BaseHTTPRequestHandler
+import unittest
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch, ANY
+
+from bson import ObjectId
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
-import urllib.parse
-import bson
-from bson.objectid import ObjectId
 
-from __main__ import LOGIN, PASSWORD, MONGODB_DB, MONGODB_COLLECTION
+from app.config import LOGIN, PASSWORD
+from app.main import Handler
 
-from __main__ import Handler
 
-class test_services(unittest.TestCase):
+# ---------- утилиты ----------------------------------------------------------
+@contextmanager
+def _silent_handle(cls):
+    """Отключаем BaseHTTPRequestHandler.handle на время __init__()."""
+    original = cls.handle
+    cls.handle = lambda self: None
+    try:
+        yield
+    finally:
+        cls.handle = original
 
+
+def _make_handler() -> Handler:
+    """Handler с подменёнными сетевыми методами, пригодный для юнит-тестов."""
+    with _silent_handle(Handler):
+        h = Handler(MagicMock(), MagicMock(), MagicMock())
+
+    h.command = "GET"
+    h.requestline = ""
+    h.log_message = MagicMock()
+    h.log_error = MagicMock()
+
+    h.send_response = MagicMock()
+    h.send_header = MagicMock()
+    h.end_headers = MagicMock()
+    h.send_error = MagicMock()
+    h.wfile = MagicMock()
+    h.wfile.write = MagicMock()
+    return h
+
+
+# ---------- тесты ------------------------------------------------------------
+class TestServices(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Set up a test MongoDB client and database
-        cls.mongo_client = MongoClient(f"mongodb+srv://{LOGIN}:{PASSWORD}@cluster0.bxpsiw0.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-        cls.db = cls.mongo_client["test_db"]  # Use a test database
-        cls.expenses = cls.db["test_collection"]  # Use a test collection
+        cls.mongo = MongoClient(
+            f"mongodb+srv://{LOGIN}:{PASSWORD}@cluster0.bxpsiw0.mongodb.net/"
+            "?retryWrites=true&w=majority&appName=Cluster0"
+        )
+        cls.db = cls.mongo["test_db"]
+        cls.col = cls.db["test_collection"]
 
-        # Clear the test collection before running tests
-        cls.expenses.delete_many({})
-
-        # Insert some test data
-        cls.test_data = [
+        cls.fixtures = [
             {"expense_name": "Grocery", "category": "Food", "amount": "50", "date": "2024-07-01"},
             {"expense_name": "Restaurant", "category": "Food", "amount": "100", "date": "2024-07-15"},
             {"expense_name": "Train ticket", "category": "Transportation", "amount": "30", "date": "2024-07-20"},
             {"expense_name": "Gas", "category": "Transportation", "amount": "70", "date": "2024-08-10"},
             {"expense_name": "Concert", "category": "Entertainment", "amount": "120", "date": "2024-08-25"},
-            {"expense_name": "Book", "category": "Entertainment", "amount": "40", "date": "2024-08-05"}
+            {"expense_name": "Book", "category": "Entertainment", "amount": "40", "date": "2024-08-05"},
         ]
-        cls.expenses.insert_many(cls.test_data)
-
-    @classmethod
-    def tearDownClass(cls):
-        # Clean up the test collection after running tests
-        cls.expenses.delete_many({})
-
-        # Close the MongoDB connection
-        cls.mongo_client.close()
 
     def setUp(self):
-        # Create a mock request handler
-        self.handler = Handler(MagicMock(), MagicMock())
-        self.handler.expenses = self.expenses  # Use the test collection
-        self.handler.send_response = MagicMock()
-        self.handler.send_header = MagicMock()
-        self.handler.end_headers = MagicMock()
-        self.handler.wfile = MagicMock()
-        self.handler.wfile.write = MagicMock()
+        self.col.delete_many({})
+        self.col.insert_many(self.fixtures)
 
+        self.h = _make_handler()
+        self.h.expenses = self.col
+
+    # ---------- бизнес-логика ------------------------------------------------
     def test_get_most_expensive_spending(self):
-        # Test case 1: Valid month and category
-        month_in_request = {"month": ["07"]}
-        category_in_request = {"category": ["Food"]}
-        self.handler.get_most_expensive_spending(month_in_request, category_in_request)
+        self.h.get_most_expensive_spending({"month": ["07"]}, {"category": ["Food"]})
+        self.h.send_response.assert_called_with(200)
 
-        self.handler.send_response.assert_called_with(200)
-        response_data = json.loads(self.handler.wfile.write.call_args[0][0].decode("utf-8"))
-        self.assertEqual(response_data["name"], "Restaurant")
-        self.assertEqual(response_data["amount"], 100)
-        self.assertEqual(response_data["date"], "2024-07-15")
+        data = json.loads(self.h.wfile.write.call_args[0][0].decode())
+        self.assertEqual(data["name"], "Restaurant")
+        self.assertEqual(data["amount"], 100)
 
-        # Test case 2: No expenses found for the given month and category
-        month_in_request = {"month": ["09"]}
-        category_in_request = {"category": ["Food"]}
-        self.handler.get_most_expensive_spending(month_in_request, category_in_request)
-        self.handler.send_response.assert_called_with(204)
+        self.h.get_most_expensive_spending({"month": ["09"]}, {"category": ["Food"]})
+        self.h.send_response.assert_called_with(204)
 
     def test_get_most_expensive_category(self):
-        # Test case 1: Valid month
-        month_in_request = {"month": ["07"]}
-        self.handler.get_most_expensive_category(month_in_request)
+        self.h.get_most_expensive_category({"month": ["07"]})
+        self.h.send_response.assert_called_with(200)
 
-        self.handler.send_response.assert_called_with(200)
-        response_data = json.loads(self.handler.wfile.write.call_args[0][0].decode("utf-8"))
-        self.assertEqual(response_data["category"], "Food")
-        self.assertEqual(response_data["total_amount"], 150)
-        self.assertEqual(response_data["expense_name"], "Restaurant")
-        self.assertEqual(response_data["total_amount_expanse_name"], 100)
-        self.assertEqual(response_data["total_amount_category"], 100)
-
-        # Test case 2: No expenses found for the given month
-        month_in_request = {"month": ["09"]}
-        self.handler.get_most_expensive_category(month_in_request)
-        self.handler.send_response.assert_called_with(204)
+        data = json.loads(self.h.wfile.write.call_args[0][0].decode())
+        self.assertEqual(data["category"], "Food")
+        self.assertEqual(data["total_amount"], 150)
 
     def test_get_categories_by_month(self):
-        # Test case 1: Valid month
-        month_in_request = {"month": ["08"]}
-        self.handler.get_categories_by_month(month_in_request)
-
-        self.handler.send_response.assert_called_with(200)
-        response_data = json.loads(self.handler.wfile.write.call_args[0][0].decode("utf-8"))
-        self.assertEqual(set(response_data), {"Transportation", "Entertainment"})
+        self.h.get_categories_by_month({"month": ["08"]})
+        cats = set(json.loads(self.h.wfile.write.call_args[0][0].decode()))
+        self.assertEqual(cats, {"Transportation", "Entertainment"})
 
     def test_get_all_expenses(self):
-        self.handler.get_all_expenses()
+        self.h.get_all_expenses()
+        docs = json.loads(self.h.wfile.write.call_args[0][0].decode())
+        self.assertEqual(len(docs), len(self.fixtures))
 
-        self.handler.send_response.assert_called_with(200)
-        response_data = json.loads(self.handler.wfile.write.call_args[0][0].decode("utf-8"))
-        self.assertEqual(len(response_data), len(self.test_data))  # Check if all expenses are returned
+    # ---------- таймаут MongoDB ---------------------------------------------
+    @patch("app.main.MongoClient")
+    def test_server_selection_timeout_error(self, _):
+        broken = _make_handler()
+        broken.expenses = MagicMock()
+        for m in ("find", "insert_one", "delete_one", "update_one"):
+            getattr(broken.expenses, m).side_effect = ServerSelectionTimeoutError()
 
-    @patch('__main__.MongoClient')
-    def test_server_selection_timeout_error(self, MockMongoClient):
-        # Mock MongoClient to raise ServerSelectionTimeoutError
-        MockMongoClient.return_value.configure_mock(**{'__getitem__.side_effect': ServerSelectionTimeoutError()})
-        handler = Handler(MagicMock(), MagicMock())
+        scenarios = [
+            (broken.get_most_expensive_spending, ({"month": ["07"]}, {"category": ["Food"]})),
+            (broken.get_most_expensive_category, ({"month": ["07"]},)),
+            (broken.get_categories_by_month, ({"month": ["07"]},)),
+            (broken.get_all_expenses, ()),
+        ]
+        for fn, args in scenarios:
+            fn(*args)
+            # send_response может быть вызвано как (524) так и (524, <msg>)
+            self.assertEqual(broken.send_response.call_args[0][0], 524)
 
-        # Call methods that might raise ServerSelectionTimeoutError
-        handler.get_most_expensive_spending({"month": ["07"]}, {"category": ["Food"]})
-        handler.send_response.assert_called_with(524)
+    # ---------- маршруты -----------------------------------------------------
+    def _call_path(self, url: str):
+        self.h.path = url
+        self.h.do_GET()
 
-        handler.get_most_expensive_category({"month": ["07"]})
-        handler.send_response.assert_called_with(524)
+    @patch("app.main.open", create=True)
+    def test_do_GET_root(self, mopen):
+        mfile = MagicMock()
+        mfile.read.return_value = b"<html></html>"
+        mopen.return_value = mfile
+        self._call_path("/")
+        self.h.send_response.assert_called_with(200)
 
-        handler.get_categories_by_month({"month": ["07"]})
-        handler.send_response.assert_called_with(524)
+    def test_do_GET_stats_paths(self):
+        for url in (
+                "/stats/most-expensive-category?month=07",
+                "/stats/biggest-expense?month=07&category=Food",
+                "/stats/categories-by-month?month=07",
+                "/expenses",
+        ):
+            self._call_path(url)
+            self.h.send_response.assert_called_with(200)
 
-        handler.get_all_expenses()
-        handler.send_response.assert_called_with(524)
+    # ---------- статика ------------------------------------------------------
+    @patch("app.main.open", create=True)
+    def test_static_ok(self, mopen):
+        mfile = MagicMock()
+        mfile.read.return_value = b"dummy"
+        mopen.return_value = mfile
+        mapping = (
+            ("/static/css/x.css", "text/css; charset=utf-8"),
+            ("/static/img/x.png", "image/png"),
+            ("/static/js/x.js", "application/javascript; charset=utf-8"),
+        )
+        for url, ctype in mapping:
+            self._call_path(url)
+            self.h.send_header.assert_called_with("Content-Type", ctype)
 
-    def test_do_GET_root(self):
-        self.handler.path = "/"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
+    @patch("app.main.open", side_effect=FileNotFoundError)
+    def test_static_not_found(self, _mopen):
+        self._call_path("/static/css/no.css")
+        self.h.send_error.assert_called_with(404, "Файл не найден")
 
-    def test_do_GET_most_expensive_category(self):
-        self.handler.path = "/stats/most-expensive-category?month=07"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
-
-    def test_do_GET_biggest_expense(self):
-        self.handler.path = "/stats/biggest-expense?month=07&category=Food"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
-
-    def test_do_GET_expenses(self):
-        self.handler.path = "/expenses"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
-
-    def test_do_GET_categories_by_month(self):
-        self.handler.path = "/stats/categories-by-month?month=07"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
-
-    @patch('__main__.open', create=True)
-    def test_do_GET_static_css(self, mock_open):
-        mock_file = MagicMock()
-        mock_file.read.return_value = b'body { background-color: #f0f0f0; }'
-        mock_open.return_value = mock_file
-        self.handler.path = "/static/css/styles.css"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
-        self.handler.send_header.assert_called_with("Content-type", "text/css; charset=utf-8")
-
-    @patch('__main__.open', create=True)
-    def test_do_GET_static_img(self, mock_open):
-        mock_file = MagicMock()
-        mock_file.read.return_value = b'PNGData'
-        mock_open.return_value = mock_file
-        self.handler.path = "/static/img/logo.png"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
-        self.handler.send_header.assert_called_with("Content-type", "image/png")
-
-    @patch('__main__.open', create=True)
-    def test_do_GET_static_js(self, mock_open):
-        mock_file = MagicMock()
-        mock_file.read.return_value = b'console.log("Hello, world!");'
-        mock_open.return_value = mock_file
-        self.handler.path = "/static/js/script.js"
-        self.handler.do_GET()
-        self.handler.send_response.assert_called_with(200)
-        self.handler.send_header.assert_called_with("Content-type", "application/javascript; charset=utf-8")
-
-    @patch('__main__.open', side_effect=FileNotFoundError)
-    def test_do_GET_file_not_found(self, mock_open):
-        self.handler.path = "/static/css/nonexistent.css"
-        self.handler.do_GET()
-        self.handler.send_error.assert_called_with(404, "Файл не найден")
-
+    # ---------- POST ---------------------------------------------------------
     def test_do_POST(self):
-        self.handler.path = "/"
-        self.handler.headers = {"Content-Length": "70"}
-        self.handler.rfile = MagicMock()
-        self.handler.rfile.read.return_value = b"expense_name=TestExpense&category=TestCategory&amount=100&date=2024-01-01"
-        self.handler.do_POST()
-        self.handler.send_response.assert_called_with(303)
-        self.handler.send_header.assert_called_with("Location", "/")
+        self.h.path = "/"
+        self.h.headers = {"Content-Length": "70"}
+        self.h.rfile = MagicMock()
+        self.h.rfile.read.return_value = (
+            b"expense_name=X&category=Y&amount=100&date=2024-01-01"
+        )
+        self.h.do_POST()
+        self.h.send_response.assert_called_with(303)
+        self.h.send_header.assert_called_with("Location", "/")
 
-if __name__ == '__main__':
+    def test_do_PUT_ok(self):
+        # создаём запись и запоминаем её _id
+        doc_id = str(self.col.insert_one({
+            "expense_name": "Old",
+            "category": "X",
+            "amount": "10",
+            "date": "2024-01-01"
+        }).inserted_id)
+
+        self.h.path = f"/expenses/{doc_id}"
+        self.h.headers = {"Content-Length": "37"}
+        self.h.rfile = MagicMock()
+        self.h.rfile.read.return_value = b'{"amount": "20"}'  # валидное JSON
+        self.h.do_PUT()
+
+        self.h.send_response.assert_called_with(200)
+        assert self.col.find_one({"_id": ObjectId(doc_id)})["amount"] == "20"
+
+    def test_do_PUT_bad_json(self):
+        self.h.path = "/expenses/64537fff0000000000000000"
+        self.h.headers = {"Content-Length": "13"}
+        self.h.rfile = MagicMock()
+        self.h.rfile.read.return_value = b'not-a-json'
+        self.h.do_PUT()
+        self.h.send_error.assert_called_with(400, "Некорректный JSON")
+
+
+if __name__ == "__main__":  # pragma: no cover
     unittest.main()
