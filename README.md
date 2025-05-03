@@ -1,9 +1,9 @@
 # Expense Tracker - Трекер трат
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/username/repository/main.yml)
-![License](https://img.shields.io/github/license/username/repository)
-![Coverage](https://img.shields.io/codecov/c/github/username/repository)
-![GitHub tag](https://img.shields.io/github/v/tag/username/repository)
+![CI](https://github.com/Dmitriz1/Case12/actions/workflows/CI.yml/badge.svg)
+![License](https://img.shields.io/github/license/Dmitriz1/Case12)
+![Coverage](https://codecov.io/gh/Dmitriz1/Case12/branch/main/graph/badge.svg)
+![GitHub tag](https://img.shields.io/github/v/tag/Dmitriz1/Case12)
 ___
 
 ## Оглавление

@@ -10,12 +10,16 @@ import json
 import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 import bson
 from bson import ObjectId
-from .config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
+
+from .config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
+
+BASE_DIR = Path(__file__).parent
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -206,8 +210,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            with open("index.html", "rb") as file:
-                self.wfile.write(file.read())
+            with (BASE_DIR / "index.html").open("rb") as f:
+                self.wfile.write(f.read())
 
         # Статистика
         elif path == "/stats/most-expensive-category":
@@ -315,8 +319,9 @@ class Handler(BaseHTTPRequestHandler):
             path (str): URL-путь, начинающийся с `/static/`.
             content_type (str): заголовок `Content-Type`.
         """
+        real_path = BASE_DIR / path.lstrip("/")
         try:
-            with open("." + path, "rb") as file:
+            with open(real_path, "rb") as file:
                 content = file.read()
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", content_type)
