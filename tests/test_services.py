@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import unittest
 from contextlib import contextmanager
-from unittest.mock import MagicMock, patch, ANY
+from unittest.mock import MagicMock, patch
 
+import mongomock
 from bson import ObjectId
-from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 
-from app.config import LOGIN, PASSWORD
 from app.main import Handler
 
 
@@ -48,10 +47,7 @@ def _make_handler() -> Handler:
 class TestServices(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.mongo = MongoClient(
-            f"mongodb+srv://{LOGIN}:{PASSWORD}@cluster0.bxpsiw0.mongodb.net/"
-            "?retryWrites=true&w=majority&appName=Cluster0"
-        )
+        cls.mongo = mongomock.MongoClient()
         cls.db = cls.mongo["test_db"]
         cls.col = cls.db["test_collection"]
 
