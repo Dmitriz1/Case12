@@ -1,227 +1,388 @@
-import urllib.parse
-import json
-import bson
-from bson.objectid import ObjectId
-from http.server import HTTPServer, BaseHTTPRequestHandler
-# from tkinter.font import names
-from pymongo.errors import ServerSelectionTimeoutError
-from pymongo import MongoClient
-from config import *
+"""
+Основной HTTP-сервер для учёта трат.
 
-from unicodedata import category
+Сервер реализован на чистом `http.server.BaseHTTPRequestHandler`
+и хранит данные в MongoDB. Поддерживаются операции CRUD и простая
+агрегация статистики.
+"""
+
+import json
+import urllib.parse
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+import bson
+from bson import ObjectId
+from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError
+
+from .config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
+
+BASE_DIR = Path(__file__).parent
 
 
 class Handler(BaseHTTPRequestHandler):
-    mongo_client = MongoClient(f"mongodb+srv://{LOGIN}:{PASSWORD}@cluster0.bxpsiw0.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+    """RESTful HTTP-сервер для учёта трат.
+
+    Ресурсы:
+        /expenses
+        /expenses/{id}
+        /categories?month={MM}
+        /categories/top?month={MM}
+        /categories/{category}/expenses?month={MM}[&biggest=true]
+    """
+
+    mongo_client = MongoClient(
+        f"mongodb+srv://{LOGIN}:{PASSWORD}@cluster0.bxpsiw0.mongodb.net/"
+        "?retryWrites=true&w=majority&appName=Cluster0"
+    )
     db = mongo_client[MONGODB_DB]
     expenses = db[MONGODB_COLLECTION]
 
-    def get_most_expensive_spending(self, month_in_request, category_in_request):
-        month = month_in_request["month"][0]
-        category = category_in_request["category"][0]
+    def _send_json(self, data, status=HTTPStatus.OK):
+        """Отправляет JSON-ответ клиенту.
 
-        try:
-            new_list = []
-            for expense in self.expenses.find():
-                if expense["date"].split("-")[1] == month and expense["category"] == category:
-                    new_list.append(expense)
+        Args:
+            data (Any): Python-объект, который будет сериализован в JSON.
+            status (HTTPStatus): HTTP-статус ответа (по умолчанию 200 OK).
+        """
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(
+            json.dumps(
+                data,
+                default=bson.json_util.default,
+                ensure_ascii=False,
+            ).encode()
+        )
 
-            if not new_list:
-                self.send_response(204)
-                self.end_headers()
-            else:
-                max_expense = max(new_list, key=lambda x: x["amount"])
-                spending_name = max_expense["expense_name"]
-                spending_amount = int(max_expense["amount"])
-                spending_date = max_expense["date"]
+    def _parse_month(self, date_str):
+        """Извлекает номер месяца из строки даты.
 
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                response_data = {
-                    "name": spending_name,
-                    "amount": spending_amount,
-                    "date": spending_date
-                }
-                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode("utf-8"))
-        except ServerSelectionTimeoutError:
-            self.send_response(524)
-            self.end_headers()
+        Args:
+            date_str (str): Дата в формате 'YYYY-MM-DD'.
 
-    def get_most_expensive_category(self, month_in_request):
-        month = month_in_request["month"][0]
+        Returns:
+            str: Двухзначный номер месяца, например '05'.
+        """
+        return date_str.split("-")[1]
 
-        try:
-            new_list = []
-            for expense in self.expenses.find():
-                if expense["date"].split("-")[1] == month:
-                    new_list.append(expense)
-
-            if not new_list:
-                self.send_response(204)
-                self.end_headers()
-            else:
-                all_category = {}
-                for exp in new_list:
-                    category = exp["category"]
-                    amount = int(exp["amount"])
-                    all_category[category] = all_category.get(category, 0) + amount
-
-                most_expensive_category = max(all_category, key=all_category.get)
-                total_amount = all_category[most_expensive_category]
-
-                # Найдём самую крупную трату за месяц
-                most_expensive_overall = max(new_list, key=lambda x: int(x["amount"]))
-                expense_name = most_expensive_overall["expense_name"]
-                amount_overall = int(most_expensive_overall["amount"])
-
-                # Найдём самую крупную трату в самой дорогой категории
-                max_in_category = max(
-                    [e for e in new_list if e["category"] == most_expensive_category],
-                    key=lambda x: int(x["amount"])
-                )
-                amount_in_category = int(max_in_category["amount"])
-
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                response_data = {
-                    "category": most_expensive_category,
-                    "total_amount": total_amount,
-                    "expense_name": expense_name,
-                    "total_amount_expanse_name": amount_overall,
-                    "total_amount_category": amount_in_category
-                }
-                self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode("utf-8"))
-
-        except ServerSelectionTimeoutError:
-            self.send_response(524)
-            self.end_headers()
-
-    def get_categories_by_month(self, month_in_request):
-        month = month_in_request["month"][0]
-
-        try:
-            categories = set()
-            for expense in self.expenses.find():
-                if expense["date"].split("-")[1] == month:
-                    categories.add(expense["category"])
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(list(categories), ensure_ascii=False).encode("utf-8"))
-
-        except ServerSelectionTimeoutError:
-            self.send_response(524)
-            self.end_headers()
+    # ---------- CRUD для /expenses ----------------------------------
 
     def get_all_expenses(self):
+        """GET /expenses — возвращает все траты.
+
+        Raises:
+            ServerSelectionTimeoutError: Если не удалось подключиться к MongoDB.
+        """
         try:
-            all_expenses = list(self.expenses.find())
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(all_expenses, default=bson.json_util.default, ensure_ascii=False).encode("utf-8"))
+            docs = list(self.expenses.find())
+            self._send_json(docs)
         except ServerSelectionTimeoutError:
-            self.send_response(524)
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+
+    def get_single_expense(self, exp_id):
+        """GET /expenses/{id} — возвращает одну трату.
+
+        Args:
+            exp_id (str): Строковое представление ObjectId документа.
+
+        Raises:
+            HTTPStatus.BAD_REQUEST: Некорректный формат ID.
+            HTTPStatus.NOT_FOUND: Документ с таким ID не найден.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
+        """
+        try:
+            doc = self.expenses.find_one({"_id": ObjectId(exp_id)})
+            if not doc:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_json(doc)
+        except bson.errors.InvalidId:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+        except ServerSelectionTimeoutError:
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+
+    def create_expense(self):
+        """POST /expenses — создаёт новую трату.
+
+        Читает form-data из тела запроса:
+            expense_name, category, amount, date
+
+        Raises:
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
+        """
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        data = urllib.parse.parse_qs(body)
+        new = {
+            "expense_name": data.get("expense_name", [""])[0],
+            "category": data.get("category", [""])[0],
+            "amount": data.get("amount", [""])[0],
+            "date": data.get("date", [""])[0],
+        }
+        try:
+            result = self.expenses.insert_one(new)
+            self.send_response(HTTPStatus.CREATED)
+            self.send_header("Location", f"/expenses/{result.inserted_id}")
             self.end_headers()
+        except ServerSelectionTimeoutError:
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+
+    def update_expense(self, exp_id):
+        """PUT /expenses/{id} — обновляет существующую трату.
+
+        Args:
+            exp_id (str): Строковое представление ObjectId документа.
+
+        Body (JSON):
+            Любые поля для обновления: expense_name, category, amount, date.
+
+        Raises:
+            HTTPStatus.BAD_REQUEST: Некорректный JSON или ID.
+            HTTPStatus.NOT_FOUND: Документ для обновления не найден.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = self.rfile.read(length).decode()
+            update = json.loads(payload)
+            result = self.expenses.update_one(
+                {"_id": ObjectId(exp_id)},
+                {"$set": update},
+            )
+            if result.matched_count:
+                self.send_response(HTTPStatus.OK)
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+        except bson.errors.InvalidId:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+        except ServerSelectionTimeoutError:
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+        finally:
+            self.end_headers()
+
+    def delete_expense(self, exp_id):
+        """DELETE /expenses/{id} — удаляет трату.
+
+        Args:
+            exp_id (str): Строковое представление ObjectId документа.
+
+        Raises:
+            HTTPStatus.BAD_REQUEST: Некорректный ID.
+            HTTPStatus.NOT_FOUND: Документ не найден.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
+        """
+        try:
+            result = self.expenses.delete_one({"_id": ObjectId(exp_id)})
+            if result.deleted_count:
+                self.send_response(HTTPStatus.NO_CONTENT)
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+        except bson.errors.InvalidId:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+        except ServerSelectionTimeoutError:
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+        finally:
+            self.end_headers()
+
+    # ---------- Статистика по категориям ----------------------------
+
+    def get_categories_by_month(self, params):
+        """GET /categories?month={MM} — список категорий за указанный месяц.
+
+        Args:
+            params (dict): Параметры запроса, ключ 'month' обязателен.
+
+        Raises:
+            HTTPStatus.BAD_REQUEST: Если параметр month отсутствует.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
+        """
+        month = params.get("month", [None])[0]
+        if not month:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            cats = {
+                exp["category"]
+                for exp in self.expenses.find()
+                if self._parse_month(exp["date"]) == month
+            }
+            self._send_json(list(cats))
+        except ServerSelectionTimeoutError:
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+
+    def get_top_category(self, params):
+        """GET /categories/top?month={MM} — самая затратная категория месяца.
+
+        Args:
+            params (dict): Параметры запроса, ключ 'month' обязателен.
+
+        Raises:
+            HTTPStatus.BAD_REQUEST: Если параметр month отсутствует.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
+        """
+        month = params.get("month", [None])[0]
+        if not month:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            month_exp = [
+                e for e in self.expenses.find() if self._parse_month(e["date"]) == month
+            ]
+            if not month_exp:
+                self.send_response(HTTPStatus.NO_CONTENT)
+                self.end_headers()
+                return
+
+            totals = {}
+            for e in month_exp:
+                cat = e["category"]
+                totals[cat] = totals.get(cat, 0) + int(e["amount"])
+            top_cat = max(totals, key=totals.get)
+            total_amount = totals[top_cat]
+
+            max_in_cat = max(
+                (e for e in month_exp if e["category"] == top_cat),
+                key=lambda x: int(x["amount"]),
+            )
+
+            resp = {
+                "category": top_cat,
+                "total_amount": total_amount,
+                "expense_name": max_in_cat["expense_name"],
+                "amount": int(max_in_cat["amount"]),
+                "date": max_in_cat["date"],
+            }
+            self._send_json(resp)
+        except ServerSelectionTimeoutError:
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+
+    def get_expenses_by_category(self, category, params):
+        """GET /categories/{category}/expenses?month={MM}[&biggest=true].
+
+        Args:
+            category (str): Название категории (URL-decoded).
+            params (dict): Параметры запроса, 'month' обязателен,
+                'biggest' опционален.
+
+        Raises:
+            HTTPStatus.BAD_REQUEST: Если параметр month отсутствует.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
+        """
+        month = params.get("month", [None])[0]
+        if not month:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            filtered = [
+                e
+                for e in self.expenses.find()
+                if self._parse_month(e["date"]) == month and e["category"] == category
+            ]
+            if not filtered:
+                self.send_response(HTTPStatus.NO_CONTENT)
+                self.end_headers()
+                return
+
+            biggest = params.get("biggest", ["false"])[0].lower() in ("1", "true")
+            if biggest:
+                largest = max(filtered, key=lambda x: int(x["amount"]))
+                result = {
+                    "expense_name": largest["expense_name"],
+                    "amount": int(largest["amount"]),
+                    "date": largest["date"],
+                }
+                self._send_json(result)
+            else:
+                self._send_json(filtered)
+        except ServerSelectionTimeoutError:
+            self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
+
+    # ---------- HTTP-маршрутизация ------------------------------------
 
     def do_GET(self):
+        """Маршрутизирует HTTP GET-запросы к соответствующим методам."""
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        params = urllib.parse.parse_qs(parsed.query)
 
-        parsed_url = urllib.parse.urlparse(self.path)
-        request = urllib.parse.parse_qs(parsed_url.query)
-        path = parsed_url.path
-
-        if self.path == "/":
-            self.send_response(200)
-            self.send_header("Content-type", "text/html; charset=utf-8")
+        if path == "/":
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            with open("index.html", "rb") as file:
-                self.wfile.write(file.read())
+            with (BASE_DIR / "index.html").open("rb") as f:
+                self.wfile.write(f.read())
+            return
 
-        elif parsed_url.path == "/stats/most-expensive-category":
-            self.get_most_expensive_category(request)
-
-        elif parsed_url.path == "/stats/biggest-expense":
-            self.get_most_expensive_spending(request, request)
-
-        elif parsed_url.path == "/expenses":
-            self.get_all_expenses()
-
-        elif parsed_url.path == "/stats/categories-by-month":
-            self.get_categories_by_month(request)
-        # Подгрузка css файлов на сервер
-
-        elif path.startswith("/static/css"):
+        if path.startswith("/static/"):
+            content_type = "application/octet-stream"
+            if path.endswith(".css"):
+                content_type = "text/css; charset=utf-8"
+            elif path.endswith(".js"):
+                content_type = "application/javascript; charset=utf-8"
+            elif path.endswith(".png"):
+                content_type = "image/png"
             try:
-                file_path = "." + path
-                with open(file_path, "rb") as file:
-                    content = file.read()
-                    self.send_response(200)
-
-                    if file_path.endswith(".css"):
-                        self.send_header("Content-type", "text/css; charset=utf-8")
-                    else:
-                        self.send_header("Content-type", "application/octet-stream")
+                with (BASE_DIR / path.lstrip("/")).open("rb") as f:
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", content_type)
                     self.end_headers()
-                    self.wfile.write(content)
+                    self.wfile.write(f.read())
+            except FileNotFoundError:
+                self.send_error(HTTPStatus.NOT_FOUND)
+            return
 
-            except FileNotFoundError:
-                self.send_error(404, "Файл не найден")
-        # Подгрузка изображений на сервер
-        elif path.startswith("/static/img"):
-            try:
-                file_path = "." + path
-                with open(file_path, "rb") as file:
-                    content = file.read()
-                    self.send_response(200)
-                    self.send_header("Content-type", "image/png")
-                    self.end_headers()
-                    self.wfile.write(content)
+        if path == "/expenses":
+            return self.get_all_expenses()
+        if path.startswith("/expenses/"):
+            exp_id = path.split("/")[2]
+            return self.get_single_expense(exp_id)
 
-            except FileNotFoundError:
-                self.send_error(404, "Файл не найден")
-        # Подгрузка js файлов на сервер
-        elif path.startswith("/static/js"):
-            try:
-                file_path = "." + path
-                with open(file_path, "rb") as file:
-                    content = file.read()
-                    self.send_response(200)
-                    self.send_header("Content-type", "application/javascript; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(content)
-            except FileNotFoundError:
-                self.send_error(404, "Файл не найден")
+        if path == "/categories":
+            return self.get_categories_by_month(params)
+        if path == "/categories/top":
+            return self.get_top_category(params)
+        if path.startswith("/categories/") and path.endswith("/expenses"):
+            raw_cat = path.split("/")[2]
+            category = urllib.parse.unquote(raw_cat)
+            return self.get_expenses_by_category(category, params)
+
+        self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
-        if self.path == '/':
-            content_length = int(self.headers["Content-Length"])
-            post_data = self.rfile.read(content_length).decode("utf-8")
-            parsed_data = urllib.parse.parse_qs(post_data)
+        """Маршрутизирует HTTP POST-запросы к соответствующим методам."""
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/expenses":
+            return self.create_expense()
+        self.send_error(HTTPStatus.NOT_FOUND)
 
-            new_expense = {
-                "expense_name": parsed_data.get("expense_name", [""])[0],
-                "category": parsed_data.get("category", [""])[0],
-                "amount": parsed_data.get("amount", [""])[0],
-                "date": parsed_data.get("date", [""])[0]
-            }
+    def do_PUT(self):
+        """Маршрутизирует HTTP PUT-запросы к соответствующим методам."""
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.startswith("/expenses/"):
+            exp_id = parsed.path.split("/")[2]
+            return self.update_expense(exp_id)
+        self.send_error(HTTPStatus.NOT_FOUND)
 
-            try:
-                self.expenses.insert_one(new_expense)
-
-                self.send_response(303)
-                self.send_header("Location", "/")
-                self.end_headers()
-            except ServerSelectionTimeoutError:
-                self.send_response(524)
-                self.end_headers()
+    def do_DELETE(self):
+        """Маршрутизирует HTTP DELETE-запросы к соответствующим методам."""
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path.startswith("/expenses/"):
+            exp_id = parsed.path.split("/")[2]
+            return self.delete_expense(exp_id)
+        self.send_error(HTTPStatus.NOT_FOUND)
 
 
 def run(server_class=HTTPServer, handler_class=Handler):
-    server_address = ('', 8000)
+    """Запускает HTTP-сервер на `localhost:8000`."""
+    server_address = ("", 8000)
     httpd = server_class(server_address, handler_class)
+    print("Сервер запущен на http://localhost:8000")
     httpd.serve_forever()
 
 
