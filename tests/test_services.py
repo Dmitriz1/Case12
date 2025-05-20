@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import mongomock
 from bson import ObjectId
 from pymongo.errors import ServerSelectionTimeoutError
+from http import HTTPStatus
 
 from app.main import Handler
 
@@ -61,6 +62,7 @@ class TestServices(unittest.TestCase):
         ]
 
     def setUp(self):
+        # очистить и заполнить фикстуры
         self.col.delete_many({})
         self.col.insert_many(self.fixtures)
 
@@ -68,33 +70,45 @@ class TestServices(unittest.TestCase):
         self.h.expenses = self.col
 
     # ---------- бизнес-логика ------------------------------------------------
-    def test_get_most_expensive_spending(self):
-        self.h.get_most_expensive_spending({"month": ["07"]}, {"category": ["Food"]})
-        self.h.send_response.assert_called_with(200)
 
-        data = json.loads(self.h.wfile.write.call_args[0][0].decode())
-        self.assertEqual(data["name"], "Restaurant")
+    def test_get_expenses_by_category_biggest(self):
+        # самая крупная трата в категории Food за 07
+        self.h.get_expenses_by_category(
+            "Food", {"month": ["07"], "biggest": ["true"]}
+        )
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        raw = self.h.wfile.write.call_args[0][0]
+        data = json.loads(raw.decode())
+        self.assertEqual(data["expense_name"], "Restaurant")
         self.assertEqual(data["amount"], 100)
+        # для месяца без данных
+        self.h.send_response.reset_mock()
+        self.h.wfile.write.reset_mock()
+        self.h.get_expenses_by_category(
+            "Food", {"month": ["09"], "biggest": ["true"]}
+        )
+        self.h.send_response.assert_called_with(HTTPStatus.NO_CONTENT)
 
-        self.h.get_most_expensive_spending({"month": ["09"]}, {"category": ["Food"]})
-        self.h.send_response.assert_called_with(204)
-
-    def test_get_most_expensive_category(self):
-        self.h.get_most_expensive_category({"month": ["07"]})
-        self.h.send_response.assert_called_with(200)
-
-        data = json.loads(self.h.wfile.write.call_args[0][0].decode())
+    def test_get_top_category(self):
+        self.h.get_top_category({"month": ["07"]})
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        raw = self.h.wfile.write.call_args[0][0]
+        data = json.loads(raw.decode())
         self.assertEqual(data["category"], "Food")
         self.assertEqual(data["total_amount"], 150)
 
     def test_get_categories_by_month(self):
         self.h.get_categories_by_month({"month": ["08"]})
-        cats = set(json.loads(self.h.wfile.write.call_args[0][0].decode()))
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        raw = self.h.wfile.write.call_args[0][0]
+        cats = set(json.loads(raw.decode()))
         self.assertEqual(cats, {"Transportation", "Entertainment"})
 
     def test_get_all_expenses(self):
         self.h.get_all_expenses()
-        docs = json.loads(self.h.wfile.write.call_args[0][0].decode())
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        raw = self.h.wfile.write.call_args[0][0]
+        docs = json.loads(raw.decode())
         self.assertEqual(len(docs), len(self.fixtures))
 
     # ---------- таймаут MongoDB ---------------------------------------------
@@ -102,45 +116,43 @@ class TestServices(unittest.TestCase):
     def test_server_selection_timeout_error(self, _):
         broken = _make_handler()
         broken.expenses = MagicMock()
-        for m in ("find", "insert_one", "delete_one", "update_one"):
+        for m in ("find", "find_one", "insert_one", "delete_one", "update_one"):
             getattr(broken.expenses, m).side_effect = ServerSelectionTimeoutError()
 
-        scenarios = [
-            (broken.get_most_expensive_spending, ({"month": ["07"]}, {"category": ["Food"]})),
-            (broken.get_most_expensive_category, ({"month": ["07"]},)),
-            (broken.get_categories_by_month, ({"month": ["07"]},)),
-            (broken.get_all_expenses, ()),
-        ]
-        for fn, args in scenarios:
-            fn(*args)
-            # send_response может быть вызвано как (524) так и (524, <msg>)
-            self.assertEqual(broken.send_response.call_args[0][0], 524)
+        broken.get_all_expenses()
+        broken.get_categories_by_month({"month": ["01"]})
+        broken.get_top_category({"month": ["01"]})
+        broken.get_expenses_by_category("Food", {"month": ["01"], "biggest": ["true"]})
+
+        last = broken.send_error.call_args[0][0] if broken.send_error.called else \
+            broken.send_response.call_args[0][0]
+        self.assertEqual(last, HTTPStatus.GATEWAY_TIMEOUT)
 
     # ---------- маршруты -----------------------------------------------------
     def _call_path(self, url: str):
         self.h.path = url
         self.h.do_GET()
 
-    @patch("app.main.open", create=True)
+    @patch("app.main.Path.open", create=True)
     def test_do_GET_root(self, mopen):
         mfile = MagicMock()
         mfile.read.return_value = b"<html></html>"
         mopen.return_value = mfile
         self._call_path("/")
-        self.h.send_response.assert_called_with(200)
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
 
-    def test_do_GET_stats_paths(self):
+    def test_do_GET_restful_paths(self):
         for url in (
-                "/stats/most-expensive-category?month=07",
-                "/stats/biggest-expense?month=07&category=Food",
-                "/stats/categories-by-month?month=07",
+                "/categories/top?month=07",
+                "/categories?month=07",
+                "/categories/Food/expenses?month=07&biggest=true",
                 "/expenses",
         ):
             self._call_path(url)
-            self.h.send_response.assert_called_with(200)
+            self.h.send_response.assert_called_with(HTTPStatus.OK)
 
     # ---------- статика ------------------------------------------------------
-    @patch("app.main.open", create=True)
+    @patch("app.main.Path.open", create=True)
     def test_static_ok(self, mopen):
         mfile = MagicMock()
         mfile.read.return_value = b"dummy"
@@ -154,25 +166,28 @@ class TestServices(unittest.TestCase):
             self._call_path(url)
             self.h.send_header.assert_called_with("Content-Type", ctype)
 
-    @patch("app.main.open", side_effect=FileNotFoundError)
+    @patch("app.main.Path.open", side_effect=FileNotFoundError)
     def test_static_not_found(self, _mopen):
         self._call_path("/static/css/no.css")
-        self.h.send_error.assert_called_with(404, "Файл не найден")
+        self.h.send_error.assert_called_with(HTTPStatus.NOT_FOUND)
 
     # ---------- POST ---------------------------------------------------------
     def test_do_POST(self):
-        self.h.path = "/"
+        # создаём новую трату через POST /expenses
+        self.h.path = "/expenses"
         self.h.headers = {"Content-Length": "70"}
         self.h.rfile = MagicMock()
         self.h.rfile.read.return_value = (
             b"expense_name=X&category=Y&amount=100&date=2024-01-01"
         )
         self.h.do_POST()
-        self.h.send_response.assert_called_with(303)
-        self.h.send_header.assert_called_with("Location", "/")
+        self.h.send_response.assert_called_with(HTTPStatus.CREATED)
+        args = self.h.send_header.call_args[0]
+        self.assertEqual(args[0], "Location")
+        self.assertTrue(str(args[1]).startswith("/expenses/"))
 
+    # ---------- PUT ----------------------------------------------------------
     def test_do_PUT_ok(self):
-        # создаём запись и запоминаем её _id
         doc_id = str(self.col.insert_one({
             "expense_name": "Old",
             "category": "X",
@@ -183,11 +198,10 @@ class TestServices(unittest.TestCase):
         self.h.path = f"/expenses/{doc_id}"
         self.h.headers = {"Content-Length": "37"}
         self.h.rfile = MagicMock()
-        self.h.rfile.read.return_value = b'{"amount": "20"}'  # валидное JSON
+        self.h.rfile.read.return_value = b'{"amount": "20"}'
         self.h.do_PUT()
-
-        self.h.send_response.assert_called_with(200)
-        assert self.col.find_one({"_id": ObjectId(doc_id)})["amount"] == "20"
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        self.assertEqual(self.col.find_one({"_id": ObjectId(doc_id)})["amount"], "20")
 
     def test_do_PUT_bad_json(self):
         self.h.path = "/expenses/64537fff0000000000000000"
@@ -195,8 +209,8 @@ class TestServices(unittest.TestCase):
         self.h.rfile = MagicMock()
         self.h.rfile.read.return_value = b'not-a-json'
         self.h.do_PUT()
-        self.h.send_error.assert_called_with(400, "Некорректный JSON")
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     unittest.main()

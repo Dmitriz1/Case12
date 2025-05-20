@@ -1,11 +1,8 @@
 /* ---------- Вспомогательные утилиты ---------- */
 const $ = sel => document.querySelector(sel);
 
-/* ---------- Инициализация формы ---------- */
-// Сегодняшняя дата по умолчанию
+/* ---------- Инициализация дат и размеров ---------- */
 $('#date').value = new Date().toISOString().split('T')[0];
-
-// Выравниваем размеры инпутов/кнопок
 const inputText = $('.input-text');
 const inputDate = $('.input-date');
 const btnAdd = $('.button-add');
@@ -16,58 +13,49 @@ inputDate.style.width = getComputedStyle(inputText).width;
 inputMonth.style.height = getComputedStyle(btnAdd).height;
 selectAdd.style.height = getComputedStyle(btnAdd).height;
 
-/* ---------- Загрузка всех категорий ---------- */
-function loadAllCategories() {
-    fetch('/expenses')
-        .then(r => r.json())
-        .then(expenses => {
-            const select = $('#category-select');
-            const categories = new Set(expenses.map(e => e.category));
-            categories.forEach(cat => {
-                const opt = document.createElement('option');
-                opt.value = cat;
-                opt.textContent = cat;
-                select.appendChild(opt);
-            });
-        })
-        .catch(console.error);
-}
-
-loadAllCategories();
-
-/* ---------- Статистика по выбранной категории ---------- */
-function fetchCategoryStats(month, category) {
-    fetch(`/stats/biggest-expense?month=${month}&category=${encodeURIComponent(category)}`)
+/* ---------- Статистика «самая затратная категория» ---------- */
+function fetchMostExpensiveCategory(monthValue) {
+    const month = monthValue.split('-')[1];
+    fetch(`/categories/top?month=${month}`)
         .then(r => {
-            const out = $('#category-stat-output');
+            const out = $('#monthly-info-output');
             if (r.status === 204) {
-                out.innerHTML = `<p class="month-txt">Нет данных по категории за выбранный месяц.</p>`;
+                out.innerHTML = `<p class="month-txt">Нет данных за выбранный месяц.</p>`;
                 return null;
             }
+            if (!r.ok) throw new Error(`Ошибка: ${r.status}`);
             return r.json();
         })
         .then(data => {
             if (!data) return;
-            $('#category-stat-output').innerHTML =
-                `<p class="month-txt"><strong>Самая крупная трата в категории "${category}":</strong>
-                 ${data.name} — ${data.amount}р (${data.date})</p>`;
+            $('#monthly-info-output').innerHTML =
+                `<p class="month-txt">
+           <strong>Самая затратная категория:</strong> ${data.category} — ${data.total_amount}р
+         </p>
+         <p class="month-txt">
+           <strong>Самая крупная трата за месяц в этой категории:</strong><br>
+           ${data.expense_name} — ${data.amount}р (${data.date})
+         </p>`;
         })
         .catch(err => {
             console.error(err);
-            alert('Не удалось получить данные.');
+            alert('Ошибка при получении общей статистики.');
         });
 }
 
-/* ---------- Обновление списка категорий при смене месяца ---------- */
+/* ---------- Загрузка категорий за месяц ---------- */
 function updateCategoriesForMonth(monthValue) {
-    const select = $('#category-select');
-    const out = $('#category-stat-output');
-    select.innerHTML = '<option value="">Выберите категорию</option>';
-    out.innerHTML = '';
-
     const month = monthValue.split('-')[1];
-    fetch(`/stats/categories-by-month?month=${month}`)
-        .then(r => r.json())
+    const select = $('#category-select');
+    // очистим старые опции, оставив только дефолтную
+    select.innerHTML = `<option value="">Выберите категорию</option>`;
+    $('#category-stat-output').innerHTML = '';
+
+    fetch(`/categories?month=${month}`)
+        .then(r => {
+            if (!r.ok) throw new Error(`Ошибка: ${r.status}`);
+            return r.json();
+        })
         .then(cats => {
             cats.forEach(cat => {
                 const opt = document.createElement('option');
@@ -76,65 +64,57 @@ function updateCategoriesForMonth(monthValue) {
                 select.appendChild(opt);
             });
         })
-        .catch(err => console.error('Ошибка при загрузке категорий:', err));
+        .catch(err => {
+            console.error('Ошибка при загрузке категорий:', err);
+        });
 }
 
-/* ---------- Статистика «самая затратная категория месяца» ---------- */
-function fetchMostExpensiveCategory(monthValue) {
+/* ---------- Статистика по выбранной категории ---------- */
+function fetchCategoryStats(monthValue, category) {
     const month = monthValue.split('-')[1];
-    fetch(`/stats/most-expensive-category?month=${month}`)
+    fetch(`/categories/${encodeURIComponent(category)}/expenses?month=${month}&biggest=true`)
         .then(r => {
-            const out = $('#monthly-info-output');
+            const out = $('#category-stat-output');
             if (r.status === 204) {
-                out.innerHTML = `<p class="month-txt">Нет данных за выбранный месяц.</p>`;
+                out.innerHTML = `<p class="month-txt">Нет данных по категории за выбранный месяц.</p>`;
                 return null;
             }
-            if (!r.ok) throw new Error(`Ошибка запроса: ${r.status}`);
+            if (!r.ok) throw new Error(`Ошибка: ${r.status}`);
             return r.json();
         })
         .then(data => {
             if (!data) return;
-            $('#monthly-info-output').innerHTML =
-                `<p class="month-txt"><strong>Самая затратная категория:</strong> ${data.category} — ${data.total_amount}р</p>
-                 <p class="month-txt"><strong>Самая крупная трата за месяц:</strong> ${data.expense_name}
-                 (${data.category}) — ${data.total_amount_expanse_name}р</p>`;
+            $('#category-stat-output').innerHTML =
+                `<p class="month-txt">
+           <strong>Самая крупная трата в категории "${category}":</strong><br>
+           ${data.expense_name} — ${data.amount}р (${data.date})
+         </p>`;
         })
         .catch(err => {
             console.error(err);
-            alert('Произошла ошибка при выполнении запроса.');
+            alert('Ошибка при получении статистики по категории.');
         });
 }
 
-/* ---------- Селекторы/кнопки, завязанные на месяц ---------- */
-$('#category-select').addEventListener('change', e => {
-    const month = $('#month-input').value;
-    const category = e.target.value;
-    if (!month || !category) {
-        $('#category-stat-output').innerHTML = '';
-        return;
-    }
-    fetchCategoryStats(month.split('-')[1], category);
-});
-
+/* ---------- Обработчики событий ---------- */
 $('#month-submit').addEventListener('click', () => {
-    const monthValue = $('#month-input').value;
-    if (!monthValue) {
+    const mv = $('#month-input').value;
+    if (!mv) {
         alert('Пожалуйста, выберите месяц.');
         return;
     }
-    fetchMostExpensiveCategory(monthValue);
-    updateCategoriesForMonth(monthValue);
-
-    $('#category-select').value = '';
-    $('#category-stat-output').innerHTML = '';
+    fetchMostExpensiveCategory(mv);
+    updateCategoriesForMonth(mv);
 });
 
-/* Текущий месяц при загрузке */
-document.addEventListener('DOMContentLoaded', () => {
-    const now = new Date();
-    const cur = now.toISOString().slice(0, 7);
-    $('#month-input').value = cur;
-    fetchMostExpensiveCategory(cur);
+$('#category-select').addEventListener('change', e => {
+    const mv = $('#month-input').value;
+    const cat = e.target.value;
+    if (!mv || !cat) {
+        $('#category-stat-output').innerHTML = '';
+        return;
+    }
+    fetchCategoryStats(mv, cat);
 });
 
 /* ---------- Добавление новой траты ---------- */
@@ -150,7 +130,7 @@ $('.button-input').addEventListener('click', evt => {
         alert('Пожалуйста, заполните все поля!');
         return;
     }
-    fetch('/', {
+    fetch('/expenses', {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: new URLSearchParams(data)
@@ -162,103 +142,60 @@ $('.button-input').addEventListener('click', evt => {
         });
 });
 
-/* ---------- Загрузка и отрисовка всех трат ---------- */
+/* ---------- Рендер списка трат ---------- */
 function renderExpenses() {
     fetch('/expenses')
         .then(r => r.json())
         .then(data => {
             const cont = document.querySelector('.monthly-statistics');
-            cont.innerHTML = '';                       // очищаем старый вывод
-
-            data.forEach(expense => {
-                /* --- разметка --- */
+            cont.innerHTML = '';
+            data.forEach(exp => {
                 const div = document.createElement('div');
                 div.className = 'el-inf-db';
-                div.dataset.id = expense._id['$oid'];
+                div.dataset.id = exp._id['$oid'];
 
-                const txtBlock = document.createElement('div');
-                txtBlock.className = 'div-txt';
+                const txt = document.createElement('div');
+                txt.className = 'div-txt';
+                txt.innerHTML = `<span class="mongodb-info">${exp.date}</span>
+                         <span class="mongodb-info-cat">${exp.expense_name} | ${exp.category}</span>
+                         <span class="mongodb-info">${exp.amount}р</span>`;
 
-                const btnBlock = document.createElement('div');
-                btnBlock.className = 'div-btn';
+                const btns = document.createElement('div');
+                btns.className = 'div-btn';
+                btns.innerHTML = `
+          <button class="button-edit"><img src="/static/img/edit.png" alt="edit"></button>
+          <button class="button-delete"><img src="/static/img/delete.png" alt="delete"></button>
+        `;
 
-                const dateCat = document.createElement('div');
-                dateCat.className = 'date-cat';
+                div.append(txt, btns);
+                cont.append(div);
 
-                const spanDate = document.createElement('span');
-                spanDate.className = 'mongodb-info';
-                spanDate.textContent = expense.date;
-
-                const spanCat = document.createElement('span');
-                spanCat.className = 'mongodb-info-cat';
-                spanCat.textContent = `${expense.expense_name} | ${expense.category}`;
-
-                const spanAmt = document.createElement('span');
-                spanAmt.className = 'mongodb-info';
-                spanAmt.textContent = `${expense.amount}р`;
-
-                const btnEdit = document.createElement('button');
-                btnEdit.className = 'button-edit';
-                const btnDelete = document.createElement('button');
-                btnDelete.className = 'button-delete';
-
-                const imgEdit = document.createElement('img');
-                imgEdit.src = '/static/img/edit.png';
-                const imgDelete = document.createElement('img');
-                imgDelete.src = '/static/img/delete.png';
-
-                /* --- сборка DOM --- */
-                cont.appendChild(div);
-                div.appendChild(txtBlock);
-                div.appendChild(btnBlock);
-
-                dateCat.appendChild(spanDate);
-                dateCat.appendChild(spanCat);
-                txtBlock.appendChild(dateCat);
-                txtBlock.appendChild(spanAmt);
-
-                btnBlock.appendChild(btnEdit);
-                btnBlock.appendChild(btnDelete);
-                btnEdit.appendChild(imgEdit);
-                btnDelete.appendChild(imgDelete);
-
-                /* ---- НОВОЕ: обработчики редактирования и удаления ---- */
-
-                // Удаление
-                btnDelete.addEventListener('click', () => {
+                // обработчики
+                btns.querySelector('.button-delete').addEventListener('click', () => {
                     if (!confirm('Удалить запись?')) return;
                     fetch(`/expenses/${div.dataset.id}`, {method: 'DELETE'})
-                        .then(r => r.ok ? div.remove() :
-                            alert(`Ошибка удаления: ${r.status}`))
+                        .then(r => r.ok ? div.remove() : alert(`Ошибка удаления: ${r.status}`))
                         .catch(err => {
                             console.error(err);
                             alert('Ошибка при удалении.');
                         });
                 });
-
-                // Редактирование
-                btnEdit.addEventListener('click', () => {
-                    const newName = prompt('Новое название', expense.expense_name);
+                btns.querySelector('.button-edit').addEventListener('click', () => {
+                    const newName = prompt('Новое название', exp.expense_name);
                     if (newName === null) return;
-                    const newCat = prompt('Категория', expense.category);
+                    const newCat = prompt('Категория', exp.category);
                     if (newCat === null) return;
-                    const newAmt = prompt('Сумма', expense.amount);
+                    const newAmt = prompt('Сумма', exp.amount);
                     if (newAmt === null) return;
-                    const newDate = prompt('Дата (YYYY-MM-DD)', expense.date);
+                    const newDate = prompt('Дата (YYYY-MM-DD)', exp.date);
                     if (newDate === null) return;
 
                     fetch(`/expenses/${div.dataset.id}`, {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            expense_name: newName,
-                            category: newCat,
-                            amount: newAmt,
-                            date: newDate
-                        })
+                        body: JSON.stringify({expense_name: newName, category: newCat, amount: newAmt, date: newDate})
                     })
-                        .then(r => r.ok ? location.reload() :
-                            alert(`Ошибка изменения: ${r.status}`))
+                        .then(r => r.ok ? location.reload() : alert(`Ошибка изменения: ${r.status}`))
                         .catch(err => {
                             console.error(err);
                             alert('Ошибка при изменении.');
@@ -269,4 +206,11 @@ function renderExpenses() {
         .catch(console.error);
 }
 
-renderExpenses();
+/* ---------- Инициализация при загрузке страницы ---------- */
+document.addEventListener('DOMContentLoaded', () => {
+    const now = new Date().toISOString().slice(0, 7);
+    $('#month-input').value = now;
+    fetchMostExpensiveCategory(now);
+    updateCategoriesForMonth(now);
+    renderExpenses();
+});
