@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, feature/**, dev]
+  pull_request:
+    branches: [ frontend, main, dev ]
+
+permissions:
+  contents: read
+
+################################################################################
+#                               L I N T                                         #
+################################################################################
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install linters
+        run: |
+          python -m pip install --upgrade pip
+          pip install black isort flake8
+
+      - name: Black (code-style)
+        run: black --check .
+
+      - name: isort (imports order)
+        run: isort --settings-file pyproject.toml --check-only .
+
+      - name: Flake8 (static checks)
+        run: flake8 .
+
+################################################################################
+#                               T E S T S                                       #
+################################################################################
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run unit-tests & collect coverage
+        run: |
+          pytest -q --cov=app --cov-report=xml
+
+      # ------------- Codecov (опционально) -
+#      - name: Upload coverage to Codecov
+#        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+#        uses: codecov/codecov-action@v5
+#        with:
+#          token: ${{ secrets.CODECOV_TOKEN }}
+#          files: coverage.xml
+#          fail_ci_if_error: true

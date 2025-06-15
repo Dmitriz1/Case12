@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Трекер трат</title>
+    <link rel="stylesheet" type="text/css" href="/static/css/style.css">
+</head>
+
+<body>
+    <h1 class="heading">Трекер.Трат</h1>
+    <form class="table-inputs" method="post" action="/expenses">
+        <div class="waste">
+            <div class="div-text">
+                <span class="text">Добавить трату</span>
+            </div>
+            <div class="inputs">
+                <label>
+                    <input class="input-text" type="text" name="expense_name" placeholder="Название траты" required>
+                </label>
+                <label>
+                    <input class="input-text" type="text" name="category" placeholder="Категория траты" required>
+                </label>
+                <label>
+
+                    <input class="input-text" type="number" name="amount" placeholder="Сумма" required>
+                </label>
+                <label>
+                    <input class="input-date" id="date" type="date" name="date" required>
+                </label>
+            </div>
+            <div class="button-input">
+                <input class="button-add" type="submit" name="action" value="Добавить">
+            </div>
+        </div>
+        <div class="monthly-info">
+            <div class="month-stat-block">
+                <span class="text">Статистика за месяц</span>
+                <div class="month-inputs">
+                    <input id="month-input" class="input-month" type="month">
+                    <button id="month-submit" class="button-add" type="button">Показать статистику</button>
+                </div>
+            </div>
+            <div class="monthly-info-output" id="monthly-info-output">
+            </div>
+            <div class="category-inputs">
+                <select id="category-select" class="select-add">
+                    <option value="">Выберите категорию</option>
+                </select>
+            </div>
+            <div id="category-stat-output" class="monthly-info-output"></div>
+        </div>
+        <div class="monthly-statistics">
+            <span class="text">Траты</span>
+        </div>
+    </form>
+    <script src="static/js/script.js"> </script>
+</body>
+
+</html>

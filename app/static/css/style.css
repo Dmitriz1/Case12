@@ -1,0 +1,167 @@
+/* Шрифты */
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Unbounded:wght@200..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Roboto:ital,wght@0,100..900;1,100..900&family=Unbounded:wght@200..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Roboto:ital,wght@0,100..900;1,100..900&family=Rubik:ital,wght@0,300..900;1,300..900&family=Unbounded:wght@200..900&display=swap');
+
+/* Сброс стилей браузера*/
+@import url('reset.css');
+
+html {
+  background-color: rgb(214, 214, 214);
+}
+
+.heading {
+  margin: 30px 150px;
+  font-family: Unbounded, sans-serif;
+  font-size: 32px;
+  font-weight: 500;
+}
+
+.table-inputs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.waste, .monthly-statistics, .monthly-info {
+  background-color: #fff;
+  margin-top: 20px;
+  border: 2px solid #121212;
+  border-radius: 8px;
+  width: 50%;
+  box-sizing: border-box;
+  padding: 16px;
+}
+
+.monthly-statistics {
+  min-height: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.monthly-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.month-stat-block {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.month-inputs {
+  display: flex;
+  gap: 8px;
+}
+
+#monthly-info-output {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 4px;
+  min-height: 2em;
+}
+
+.category-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.select-add {
+  padding: 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  cursor: pointer;
+  background-color: #fff;
+}
+
+#category-stat-output {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 4px;
+  min-height: 2em;
+}
+
+.button-add {
+  padding: 8px 16px;
+  background-color: #fff;
+  border: 1px solid #121212;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.button-add:hover {
+  background-color: #121212;
+  color: #fff;
+}
+
+.waste {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.div-text {
+  font-family: Roboto, sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.inputs {
+  display: flex;
+  gap: 8px;
+}
+
+.input-text, .input-date, .input-month {
+  padding: 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-family: Roboto, sans-serif;
+}
+
+.el-inf-db {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.div-txt {
+  display: flex;
+  justify-content: space-between;
+  width: 75%;
+}
+
+.date-cat {
+  width: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.mongodb-info, .mongodb-info-cat {
+  font-family: Roboto, sans-serif;
+  font-weight: 300;
+}
+
+.div-btn {
+  display: flex;
+  gap: 8px;
+}
+
+.button-edit, .button-delete {
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+}
+
+.button-edit img, .button-delete img {
+  width: 100%;
+  height: auto;
+}
