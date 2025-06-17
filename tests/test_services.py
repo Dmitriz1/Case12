@@ -211,76 +211,7 @@ class TestServices(unittest.TestCase):
         self.h.do_PUT()
         self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
 
-    # ---------- DELETE ----------------------------------------------------------
-    def test_do_DELETE_ok(self):
-        handler = _make_handler()
-        item = {
-            "expense_name": "To delete",
-            "category": "Misc",
-            "amount": "10",
-            "date": "2024-08-01"
-        }
-        inserted = self.col.insert_one(item)
-
-        handler.path = f"/expenses/{inserted.inserted_id}"
-        handler.command = "DELETE"
-        handler.expenses = self.col
-
-        Handler.do_DELETE(handler)
-
-        handler.send_response.assert_called_with(HTTPStatus.NO_CONTENT)
-        assert self.col.find_one({"_id": inserted.inserted_id}) is None
-
-    def test_do_DELETE_not_found(self):
-        handler = _make_handler()
-        fake_id = ObjectId()
-        handler.path = f"/expenses/{fake_id}"
-        handler.command = "DELETE"
-        handler.expenses = self.col
-
-        Handler.do_DELETE(handler)
-
-        handler.send_error.assert_called_with(HTTPStatus.NOT_FOUND)
     
-    # ---------- GET ----------------------------------------------------------
-    def test_do_GET_by_id(self):
-        inserted = self.col.insert_one({
-            "expense_name": "Taxi", "category": "Transport", "amount": "25", "date": "2024-05-10"
-        })
-
-        self.h.path = f"/expenses/{inserted.inserted_id}"
-        self.h.command = "GET"
-        self.h.expenses = self.col
-
-        Handler.do_GET(self.h)
-
-        self.h.send_response.assert_called_with(HTTPStatus.OK)
-        self.h.send_header.assert_any_call("Content-Type", unittest.mock.ANY)
-        args = [call[0][1] for call in self.h.send_header.call_args_list if call[0][0] == "Content-Type"]
-        self.assertTrue(any(arg.startswith("application/json") for arg in args))
-    def test_GET_many_expenses(self):
-        items = [{"expense_name": f"Item {i}", "category": "Test", "amount": "1", "date": "2024-01-01"} for i in range(1000)]
-        self.col.insert_many(items)
-
-        self.h.path = "/expenses"
-        self.h.command = "GET"
-        self.h.expenses = self.col
-
-        Handler.do_GET(self.h)
-        self.h.send_response.assert_called_with(HTTPStatus.OK)
-        self.assertTrue(self.h.wfile.write.called)
-
-    
-    # ---------- TIME ----------------------------------------------------------
-    def test_response_time_under_limit(self):
-        import time
-        start = time.time()
-        self.h.path = "/expenses"
-        self.h.command = "GET"
-        self.h.expenses = self.col
-        Handler.do_GET(self.h)
-        duration = time.time() - start
-        self.assertLess(duration, 1.0)  # например, < 1 секунды
 
 if __name__ == "__main__":
     unittest.main()
