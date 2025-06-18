@@ -12,6 +12,9 @@ from http import HTTPStatus
 
 from app.main import Handler
 
+import json
+import io
+from io import BytesIO
 
 # ---------- утилиты ----------------------------------------------------------
 @contextmanager
@@ -210,6 +213,95 @@ class TestServices(unittest.TestCase):
         self.h.rfile.read.return_value = b'not-a-json'
         self.h.do_PUT()
         self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    # ---------- DELETE ---------------------------------------------------------
+    def test_delete_expense(self):
+        doc = {"expense_name": "To Delete", "category": "Misc", "amount": "10", "date": "2024-09-01"}
+        inserted_id = self.col.insert_one(doc).inserted_id
+
+        self.assertIsNotNone(self.col.find_one({"_id": inserted_id}))
+
+        self.h.delete_expense(str(inserted_id))
+
+        self.assertIsNone(self.col.find_one({"_id": inserted_id}))
+
+    # ---------- редактирование ---------------------------------------------------------
+    def test_update_expense_invalid_date(self):
+        # Ввод букв в дату
+        expense = self.col.find_one()
+        update_data = {
+            "expense_name": "Updated",
+            "category": "Food",
+            "amount": "50",
+            "date": "abcd" 
+        }
+
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called()
+
+
+    def test_update_expense_invalid_amount(self):
+        # Ввод букв в сумму
+        expense = self.col.find_one()
+        update_data = {
+            "expense_name": "Updated",
+            "category": "Food",
+            "amount": "abc",  
+            "date": "2024-01-01"
+        }
+
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called()
+
+
+    def test_update_expense_empty_fields(self):
+        # Пустые значения
+        expense = self.col.find_one()
+        update_data = {
+            "expense_name": "",
+            "category": "",
+            "amount": "",
+            "date": ""
+        }
+
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called()
+
+
+
+    def test_update_expense_valid(self):
+        import io, json
+        expense = self.col.find_one()
+
+        updated_data = {
+            "expense_name": "Updated Expense",
+            "category": "Updated Category",
+            "amount": "200",
+            "date": "2024-09-15"
+        }
+
+        body = json.dumps(updated_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+
+        self.h.update_expense(str(expense["_id"]))
+
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        updated = self.col.find_one({"_id": expense["_id"]})
+        self.assertEqual(updated["expense_name"], "Updated Expense")
+        self.assertEqual(updated["amount"], "200")
 
 
 if __name__ == "__main__":
