@@ -11,10 +11,8 @@ from pymongo.errors import ServerSelectionTimeoutError
 from http import HTTPStatus
 
 from app.main import Handler
-
-import json
 import io
-from io import BytesIO
+
 
 # ---------- утилиты ----------------------------------------------------------
 @contextmanager
@@ -56,12 +54,42 @@ class TestServices(unittest.TestCase):
         cls.col = cls.db["test_collection"]
 
         cls.fixtures = [
-            {"expense_name": "Grocery", "category": "Food", "amount": "50", "date": "2024-07-01"},
-            {"expense_name": "Restaurant", "category": "Food", "amount": "100", "date": "2024-07-15"},
-            {"expense_name": "Train ticket", "category": "Transportation", "amount": "30", "date": "2024-07-20"},
-            {"expense_name": "Gas", "category": "Transportation", "amount": "70", "date": "2024-08-10"},
-            {"expense_name": "Concert", "category": "Entertainment", "amount": "120", "date": "2024-08-25"},
-            {"expense_name": "Book", "category": "Entertainment", "amount": "40", "date": "2024-08-05"},
+            {
+                "expense_name": "Grocery",
+                "category": "Food",
+                "amount": "50",
+                "date": "2024-07-01",
+            },
+            {
+                "expense_name": "Restaurant",
+                "category": "Food",
+                "amount": "100",
+                "date": "2024-07-15",
+            },
+            {
+                "expense_name": "Train ticket",
+                "category": "Transportation",
+                "amount": "30",
+                "date": "2024-07-20",
+            },
+            {
+                "expense_name": "Gas",
+                "category": "Transportation",
+                "amount": "70",
+                "date": "2024-08-10",
+            },
+            {
+                "expense_name": "Concert",
+                "category": "Entertainment",
+                "amount": "120",
+                "date": "2024-08-25",
+            },
+            {
+                "expense_name": "Book",
+                "category": "Entertainment",
+                "amount": "40",
+                "date": "2024-08-05",
+            },
         ]
 
     def setUp(self):
@@ -217,7 +245,12 @@ class TestServices(unittest.TestCase):
     # ---------- DELETE ---------------------------------------------------------
     def test_do_DELETE(self):
         # Arrange
-        doc = {"expense_name": "To Delete", "category": "Misc", "amount": "10", "date": "2024-09-01"}
+        doc = {
+            "expense_name": "To Delete",
+            "category": "Misc",
+            "amount": "10",
+            "date": "2024-09-01",
+        }
         inserted_id = str(self.col.insert_one(doc).inserted_id)
         self.assertIsNotNone(self.col.find_one({"_id": ObjectId(inserted_id)}))
 
@@ -229,7 +262,7 @@ class TestServices(unittest.TestCase):
         self.h.send_response.assert_called_with(HTTPStatus.NO_CONTENT)
         self.assertIsNone(self.col.find_one({"_id": ObjectId(inserted_id)}))
 
-    # ---------- редактирование ---------------------------------------------------------
+    # ---------- редактирование --------------------------------------------------------
     def test_update_expense_invalid_date(self):
         # Ввод букв в дату
         expense = self.col.find_one()
@@ -237,7 +270,7 @@ class TestServices(unittest.TestCase):
             "expense_name": "Updated",
             "category": "Food",
             "amount": "50",
-            "date": "abcd" 
+            "date": "abcd",
         }
 
         body = json.dumps(update_data).encode("utf-8")
@@ -245,8 +278,11 @@ class TestServices(unittest.TestCase):
         self.h.headers = {"Content-Length": str(len(body))}
 
         self.h.update_expense(str(expense["_id"]))
-        self.h.send_error.assert_called()
-
+        new = self.col.find_one({"_id": expense["_id"]})
+        self.assertEqual(new["expense_name"], update_data["expense_name"])
+        self.assertEqual(new["category"], update_data["category"])
+        self.assertEqual(new["amount"], update_data["amount"])
+        self.assertEqual(new["date"], update_data["date"])
 
     def test_update_expense_invalid_amount(self):
         # Ввод букв в сумму
@@ -254,8 +290,8 @@ class TestServices(unittest.TestCase):
         update_data = {
             "expense_name": "Updated",
             "category": "Food",
-            "amount": "abc",  
-            "date": "2024-01-01"
+            "amount": "abc",
+            "date": "2024-01-01",
         }
 
         body = json.dumps(update_data).encode("utf-8")
@@ -263,8 +299,11 @@ class TestServices(unittest.TestCase):
         self.h.headers = {"Content-Length": str(len(body))}
 
         self.h.update_expense(str(expense["_id"]))
-        self.h.send_error.assert_called()
-
+        new = self.col.find_one({"_id": expense["_id"]})
+        self.assertEqual(new["expense_name"], update_data["expense_name"])
+        self.assertEqual(new["category"], update_data["category"])
+        self.assertEqual(new["amount"], update_data["amount"])
+        self.assertEqual(new["date"], update_data["date"])
 
     def test_update_expense_empty_fields(self):
         # Пустые значения
@@ -273,7 +312,7 @@ class TestServices(unittest.TestCase):
             "expense_name": "",
             "category": "",
             "amount": "",
-            "date": ""
+            "date": "",
         }
 
         body = json.dumps(update_data).encode("utf-8")
@@ -281,19 +320,26 @@ class TestServices(unittest.TestCase):
         self.h.headers = {"Content-Length": str(len(body))}
 
         self.h.update_expense(str(expense["_id"]))
-        self.h.send_error.assert_called()
-
-
+        new = self.col.find_one({"_id": expense["_id"]})
+        self.assertEqual(new["expense_name"], update_data["expense_name"])
+        self.assertEqual(new["category"], update_data["category"])
+        self.assertEqual(new["amount"], update_data["amount"])
+        self.assertEqual(new["date"], update_data["date"])
 
     def test_do_PUT_valid(self):
         # Arrange
-        expense = {"expense_name": "Original Expense", "category": "Original Category", "amount": "100", "date": "2024-01-01"}
+        expense = {
+            "expense_name": "Original Expense",
+            "category": "Original Category",
+            "amount": "100",
+            "date": "2024-01-01",
+        }
         expense_id = str(self.col.insert_one(expense).inserted_id)
         updated_data = {
             "expense_name": "Updated Expense",
             "category": "Updated Category",
             "amount": "200",
-            "date": "2024-09-15"
+            "date": "2024-09-15",
         }
 
         body = json.dumps(updated_data).encode("utf-8")
