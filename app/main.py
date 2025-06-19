@@ -19,7 +19,7 @@ from bson import ObjectId
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 
-from .config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
+from app.config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
 
 BASE_DIR = Path(__file__).parent
 
