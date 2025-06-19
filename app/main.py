@@ -42,6 +42,30 @@ def valid_str(s: str) -> bool:
     )
 
 
+def validate_expense_data(data: dict) -> bool:
+    """Проверяет валидность всех полей расхода (название, категория, сумма, дата).
+    Возвращает True, если всё ок, иначе False.
+    """
+    if not (
+        valid_str(data.get("expense_name", "")) and valid_str(data.get("category", ""))
+    ):
+        return False
+    try:
+        amount = int(data["amount"])
+        if amount <= 0 or len(str(amount)) > 7:
+            return False
+    except Exception:
+        return False
+    date = data.get("date", "")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        return False
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except Exception:
+        return False
+    return True
+
+
 class Handler(BaseHTTPRequestHandler):
     """RESTful HTTP-сервер для учёта трат.
 
@@ -156,22 +180,7 @@ class Handler(BaseHTTPRequestHandler):
             "amount": data.get("amount", [""])[0],
             "date": data.get("date", [""])[0],
         }
-        if not (valid_str(new["expense_name"]) and valid_str(new["category"])):
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            return
-        try:
-            amount = int(new["amount"])
-            if amount <= 0 or len(str(amount)) > 7:
-                raise ValueError
-        except Exception:
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            return
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", new["date"]):
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            return
-        try:
-            datetime.strptime(new["date"], "%Y-%m-%d")
-        except Exception:
+        if not validate_expense_data(new):
             self.send_error(HTTPStatus.BAD_REQUEST)
             return
         try:
@@ -210,28 +219,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.BAD_REQUEST)
             self.end_headers()
             return
-        if not (
-            valid_str(update.get("expense_name", ""))
-            and valid_str(update.get("category", ""))
-        ):
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            self.end_headers()
-            return
-        try:
-            amount = int(update["amount"])
-            if amount <= 0 or len(str(amount)) > 7:
-                raise ValueError
-        except Exception:
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            self.end_headers()
-            return
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", update["date"]):
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            self.end_headers()
-            return
-        try:
-            datetime.strptime(update["date"], "%Y-%m-%d")
-        except Exception:
+        if not validate_expense_data(update):
             self.send_error(HTTPStatus.BAD_REQUEST)
             self.end_headers()
             return
