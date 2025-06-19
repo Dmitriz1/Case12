@@ -215,15 +215,19 @@ class TestServices(unittest.TestCase):
         self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
 
     # ---------- DELETE ---------------------------------------------------------
-    def test_delete_expense(self):
+    def test_do_DELETE(self):
+        # Arrange
         doc = {"expense_name": "To Delete", "category": "Misc", "amount": "10", "date": "2024-09-01"}
-        inserted_id = self.col.insert_one(doc).inserted_id
+        inserted_id = str(self.col.insert_one(doc).inserted_id)
+        self.assertIsNotNone(self.col.find_one({"_id": ObjectId(inserted_id)}))
 
-        self.assertIsNotNone(self.col.find_one({"_id": inserted_id}))
+        # Act
+        self.h.path = f"/expenses/{inserted_id}"  # Set the path for DELETE
+        self.h.do_DELETE()
 
-        self.h.delete_expense(str(inserted_id))
-
-        self.assertIsNone(self.col.find_one({"_id": inserted_id}))
+        # Assert
+        self.h.send_response.assert_called_with(HTTPStatus.NO_CONTENT)
+        self.assertIsNone(self.col.find_one({"_id": ObjectId(inserted_id)}))
 
     # ---------- редактирование ---------------------------------------------------------
     def test_update_expense_invalid_date(self):
@@ -281,10 +285,10 @@ class TestServices(unittest.TestCase):
 
 
 
-    def test_update_expense_valid(self):
-        import io, json
-        expense = self.col.find_one()
-
+    def test_do_PUT_valid(self):
+        # Arrange
+        expense = {"expense_name": "Original Expense", "category": "Original Category", "amount": "100", "date": "2024-01-01"}
+        expense_id = str(self.col.insert_one(expense).inserted_id)
         updated_data = {
             "expense_name": "Updated Expense",
             "category": "Updated Category",
@@ -293,13 +297,18 @@ class TestServices(unittest.TestCase):
         }
 
         body = json.dumps(updated_data).encode("utf-8")
-        self.h.rfile = io.BytesIO(body)
-        self.h.headers = {"Content-Length": str(len(body))}
 
-        self.h.update_expense(str(expense["_id"]))
+        self.h.path = f"/expenses/{expense_id}"
+        self.h.headers = {'Content-Length': str(len(body))}
+        self.h.rfile = MagicMock()
+        self.h.rfile.read.return_value = body
 
+        # Act
+        self.h.do_PUT()
+
+        # Assert
         self.h.send_response.assert_called_with(HTTPStatus.OK)
-        updated = self.col.find_one({"_id": expense["_id"]})
+        updated = self.col.find_one({"_id": ObjectId(expense_id)})
         self.assertEqual(updated["expense_name"], "Updated Expense")
         self.assertEqual(updated["amount"], "200")
 
