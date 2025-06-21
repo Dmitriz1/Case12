@@ -252,5 +252,282 @@ class TestServices(unittest.TestCase):
         self.h.do_PUT()
         self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
 
+    # ---------- DELETE ---------------------------------------------------------
+    def test_do_DELETE(self):
+        # Проверяем, что реально удаляется
+        doc = {
+            "expense_name": "To Delete",
+            "category": "Misc",
+            "amount": "10",
+            "date": "2024-09-01",
+        }
+        inserted_id = str(self.col.insert_one(doc).inserted_id)
+        self.assertIsNotNone(self.col.find_one({"_id": ObjectId(inserted_id)}))
+        self.h.path = f"/expenses/{inserted_id}"
+        self.h.do_DELETE()
+        self.h.send_response.assert_called_with(HTTPStatus.NO_CONTENT)
+        self.assertIsNone(self.col.find_one({"_id": ObjectId(inserted_id)}))
+
+    # ---------- редактирование --------------------------------------------------------
+    def test_update_expense_invalid_date(self):
+        # Дата — не дата
+        expense = self.col.find_one()
+        update_data = {
+            "expense_name": "Updated",
+            "category": "Food",
+            "amount": "50",
+            "date": "abcd",
+        }
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+        # Проверяем, что ничего не поменялось
+        new = self.col.find_one({"_id": expense["_id"]})
+        self.assertEqual(new["expense_name"], expense["expense_name"])
+        self.assertEqual(new["category"], expense["category"])
+        self.assertEqual(new["amount"], expense["amount"])
+        self.assertEqual(new["date"], expense["date"])
+
+    def test_update_expense_invalid_amount(self):
+        # Сумма — не число
+        expense = self.col.find_one()
+        update_data = {
+            "expense_name": "Updated",
+            "category": "Food",
+            "amount": "abc",
+            "date": "2024-01-01",
+        }
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+        new = self.col.find_one({"_id": expense["_id"]})
+        self.assertEqual(new["expense_name"], expense["expense_name"])
+        self.assertEqual(new["category"], expense["category"])
+        self.assertEqual(new["amount"], expense["amount"])
+        self.assertEqual(new["date"], expense["date"])
+
+    def test_update_expense_empty_fields(self):
+        # Пустые строки в обязательных полях
+        expense = self.col.find_one()
+        update_data = {
+            "expense_name": "",
+            "category": "",
+            "amount": "100",
+            "date": "2024-01-01",
+        }
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+        new = self.col.find_one({"_id": expense["_id"]})
+        self.assertEqual(new["expense_name"], expense["expense_name"])
+        self.assertEqual(new["category"], expense["category"])
+        self.assertEqual(new["amount"], expense["amount"])
+        self.assertEqual(new["date"], expense["date"])
+
+    def test_do_PUT_valid(self):
+        # Обычное обновление — всё должно пройти
+        expense = {
+            "expense_name": "Original Expense",
+            "category": "Original Category",
+            "amount": "100",
+            "date": "2024-01-01",
+        }
+        expense_id = str(self.col.insert_one(expense).inserted_id)
+        updated_data = {
+            "expense_name": "Updated Expense",
+            "category": "Updated Category",
+            "amount": "200",
+            "date": "2024-09-15",
+        }
+        body = json.dumps(updated_data).encode("utf-8")
+        self.h.path = f"/expenses/{expense_id}"
+        self.h.headers = {'Content-Length': str(len(body))}
+        self.h.rfile = MagicMock()
+        self.h.rfile.read.return_value = body
+        self.h.do_PUT()
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        updated = self.col.find_one({"_id": ObjectId(expense_id)})
+        self.assertEqual(updated["expense_name"], "Updated Expense")
+        self.assertEqual(updated["amount"], "200")
+
+    def test_get_single_expense(self):
+        expense = self.col.find_one()
+        self.h.get_single_expense(str(expense["_id"]))
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        raw = self.h.wfile.write.call_args[0][0]
+        data = json.loads(raw.decode())
+        self.assertEqual(data["expense_name"], expense["expense_name"])
+        self.assertEqual(data["category"], expense["category"])
+        self.assertEqual(data["amount"], expense["amount"])
+        self.assertEqual(data["date"], expense["date"])
+        # Не найден
+        self.h.get_single_expense(str(ObjectId()))
+        self.h.send_error.assert_called_with(HTTPStatus.NOT_FOUND)
+        # Кривой ID
+        self.h.get_single_expense("invalid-id")
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    def test_do_GET_single_expense(self):
+        expense = self.col.find_one()
+        self.h.path = f"/expenses/{str(expense['_id'])}"
+        self.h.do_GET()
+        self.h.send_response.assert_called_with(HTTPStatus.OK)
+        raw = self.h.wfile.write.call_args[0][0]
+        data = json.loads(raw.decode())
+        self.assertEqual(data["expense_name"], expense["expense_name"])
+
+    def test_mongodb_errors(self):
+        # Здесь эмулируем падение монги на всех операциях
+        error_collection = MagicMock()
+        error_collection.find_one.side_effect = ServerSelectionTimeoutError()
+        error_collection.update_one.side_effect = ServerSelectionTimeoutError()
+        error_collection.delete_one.side_effect = ServerSelectionTimeoutError()
+        self.h.expenses = error_collection
+        self.h.get_single_expense("507f1f77bcf86cd799439011")
+        self.h.send_error.assert_called_with(HTTPStatus.GATEWAY_TIMEOUT)
+        update_data = {
+            "expense_name": "Test",
+            "category": "Food",
+            "amount": "100",
+            "date": "2024-01-01"
+        }
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+        self.h.update_expense("507f1f77bcf86cd799439011")
+        self.h.send_error.assert_called_with(HTTPStatus.GATEWAY_TIMEOUT)
+
+    def test_invalid_expense_id(self):
+        # Кривой ID при обновлении
+        update_data = {
+            "expense_name": "Test",
+            "category": "Food",
+            "amount": "100",
+            "date": "2024-01-01"
+        }
+        body = json.dumps(update_data).encode("utf-8")
+        self.h.rfile = io.BytesIO(body)
+        self.h.headers = {"Content-Length": str(len(body))}
+        self.h.update_expense("invalid-id")
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    def test_categories_by_month_no_param(self):
+        self.h.get_categories_by_month({})
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    def test_top_category_no_param(self):
+        self.h.get_top_category({})
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    def test_top_category_empty_month(self):
+        self.h.get_top_category({"month": ["99"]})
+        self.h.send_response.assert_called_with(HTTPStatus.NO_CONTENT)
+
+    def test_expenses_by_category_no_param(self):
+        self.h.get_expenses_by_category("Food", {})
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    def test_expenses_by_category_empty_month(self):
+        self.h.get_expenses_by_category("Food", {"month": ["99"]})
+        self.h.send_response.assert_called_with(HTTPStatus.NO_CONTENT)
+
+    def test_routing_not_found(self):
+        # Проверяем, что сервер честно шлёт 404 на любые несуществующие пути
+        for method in ["GET", "POST", "PUT", "DELETE"]:
+            self.h.path = "/nonexistent"
+            if method == "GET":
+                self.h.do_GET()
+            elif method == "POST":
+                self.h.do_POST()
+            elif method == "PUT":
+                self.h.do_PUT()
+            else:
+                self.h.do_DELETE()
+            self.h.send_error.assert_called_with(HTTPStatus.NOT_FOUND)
+
+    def test_static_content_types(self):
+        # Проверяем, что сервер правильно определяет Content-Type для разных файлов
+        test_files = [
+            ("/static/unknown.txt", "application/octet-stream"),
+            ("/static/test.js", "application/javascript; charset=utf-8"),
+            ("/static/test.css", "text/css; charset=utf-8"),
+            ("/static/test.png", "image/png"),
+        ]
+        for path, content_type in test_files:
+            with patch("app.main.Path.open", create=True) as mopen:
+                mfile = MagicMock()
+                mfile.read.return_value = b"test content"
+                mopen.return_value = mfile
+                self.h.path = path
+                self.h.do_GET()
+                self.h.send_response.assert_called_with(HTTPStatus.OK)
+                self.h.send_header.assert_any_call("Content-Type", content_type)
+
+    def test_create_expense_errors(self):
+        self.h.path = "/expenses"
+        self.h.headers = {"Content-Length": "0"}
+        self.h.rfile = MagicMock()
+        # Пустой запрос
+        self.h.rfile.read.return_value = b""
+        self.h.create_expense()
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+        # Слишком большая сумма
+        self.h.rfile.read.return_value = (
+            b"expense_name=Test&category=Food&amount=12345678&date=2024-01-01"
+        )
+        self.h.create_expense()
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+        # Кривая дата
+        self.h.rfile.read.return_value = (
+            b"expense_name=Test&category=Food&amount=100&date=2024-13-01"
+        )
+        self.h.create_expense()
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    def test_update_expense_errors(self):
+        expense = self.col.find_one()
+        self.h.path = f"/expenses/{str(expense['_id'])}"
+        self.h.headers = {"Content-Length": "0"}
+        self.h.rfile = MagicMock()
+        # Пустой запрос
+        self.h.rfile.read.return_value = b""
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+        # Слишком большая сумма
+        update_data = {
+            "expense_name": "Test",
+            "category": "Food",
+            "amount": "12345678",
+            "date": "2024-01-01"
+        }
+        self.h.rfile.read.return_value = json.dumps(update_data).encode("utf-8")
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+        # Кривая дата
+        update_data["amount"] = "100"
+        update_data["date"] = "2024-13-01"
+        self.h.rfile.read.return_value = json.dumps(update_data).encode("utf-8")
+        self.h.update_expense(str(expense["_id"]))
+        self.h.send_error.assert_called_with(HTTPStatus.BAD_REQUEST)
+
+    @patch("http.server.HTTPServer.__init__")
+    def test_run_server(self, mock_init):
+        # Проверяем, что сервер стартует и не падает на старте
+        from app.main import run
+        mock_init.return_value = None
+        with patch("http.server.HTTPServer.serve_forever") as mock_serve:
+            run()
+            mock_init.assert_called_once()
+            args = mock_init.call_args[0]
+            self.assertEqual(args[0], ("", 8000))
+            mock_serve.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
