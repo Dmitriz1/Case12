@@ -36,9 +36,9 @@ def valid_str(s: str) -> bool:
             - Содержит только буквы, цифры, дефис и пробел
     """
     return (
-            isinstance(s, str)
-            and 1 <= len(s.strip()) <= 50
-            and re.match(r"^[\wА-Яа-яЁё\- ]+$", s.strip())
+        isinstance(s, str)
+        and 1 <= len(s.strip()) <= 50
+        and re.match(r"^[\wА-Яа-яЁё\- ]+$", s.strip())
     )
 
 
@@ -47,7 +47,7 @@ def validate_expense_data(data: dict) -> bool:
     Возвращает True, если всё ок, иначе False.
     """
     if not (
-            valid_str(data.get("expense_name", "")) and valid_str(data.get("category", ""))
+        valid_str(data.get("expense_name", "")) and valid_str(data.get("category", ""))
     ):
         return False
     try:
