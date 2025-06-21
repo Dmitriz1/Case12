@@ -7,9 +7,7 @@
 """
 
 import json
-import re
 import urllib.parse
-from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -19,51 +17,9 @@ from bson import ObjectId
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError
 
-from app.config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
+from .config import LOGIN, MONGODB_COLLECTION, MONGODB_DB, PASSWORD
 
 BASE_DIR = Path(__file__).parent
-
-
-def valid_str(s: str) -> bool:
-    """Проверяет строку на соответствие требованиям.
-
-    Args:
-        s: Строка для проверки.
-
-    Returns:
-        bool: True если строка соответствует всем требованиям:
-            - Длина от 1 до 50 символов
-            - Содержит только буквы, цифры, дефис и пробел
-    """
-    return (
-        isinstance(s, str)
-        and 1 <= len(s.strip()) <= 50
-        and re.match(r"^[\wА-Яа-яЁё\- ]+$", s.strip())
-    )
-
-
-def validate_expense_data(data: dict) -> bool:
-    """Проверяет валидность всех полей расхода (название, категория, сумма, дата).
-    Возвращает True, если всё ок, иначе False.
-    """
-    if not (
-        valid_str(data.get("expense_name", "")) and valid_str(data.get("category", ""))
-    ):
-        return False
-    try:
-        amount = int(data["amount"])
-        if amount <= 0 or len(str(amount)) > 7:
-            return False
-    except Exception:
-        return False
-    date = data.get("date", "")
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
-        return False
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except Exception:
-        return False
-    return True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -102,24 +58,21 @@ class Handler(BaseHTTPRequestHandler):
             ).encode()
         )
 
-    def _parse_month(self, date_str: str) -> str:
+    def _parse_month(self, date_str):
         """Извлекает номер месяца из строки даты.
 
         Args:
-            date_str: Дата в формате 'YYYY-MM-DD'.
+            date_str (str): Дата в формате 'YYYY-MM-DD'.
 
         Returns:
-            Двухзначный номер месяца, например '05'.
+            str: Двухзначный номер месяца, например '05'.
         """
         return date_str.split("-")[1]
 
     # ---------- CRUD для /expenses ----------------------------------
 
     def get_all_expenses(self):
-        """Возвращает список всех трат.
-
-        Returns:
-            JSON со списком всех документов из коллекции expenses.
+        """GET /expenses — возвращает все траты.
 
         Raises:
             ServerSelectionTimeoutError: Если не удалось подключиться к MongoDB.
@@ -134,15 +87,12 @@ class Handler(BaseHTTPRequestHandler):
         """GET /expenses/{id} — возвращает одну трату.
 
         Args:
-            exp_id: ObjectId траты в строковом представлении.
-
-        Returns:
-            JSON с данными траты.
+            exp_id (str): Строковое представление ObjectId документа.
 
         Raises:
-            HTTPStatus.BAD_REQUEST: При некорректном формате ID.
-            HTTPStatus.NOT_FOUND: Если трата не найдена.
-            HTTPStatus.GATEWAY_TIMEOUT: При ошибке подключения к MongoDB.
+            HTTPStatus.BAD_REQUEST: Некорректный формат ID.
+            HTTPStatus.NOT_FOUND: Документ с таким ID не найден.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
         """
         try:
             doc = self.expenses.find_one({"_id": ObjectId(exp_id)})
@@ -156,20 +106,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
 
     def create_expense(self):
-        """Создает новую трату.
+        """POST /expenses — создаёт новую трату.
 
-        Ожидает form-data с полями:
-            expense_name: Название траты (1-50 символов)
-            category: Категория (1-50 символов)
-            amount: Сумма (целое положительное число до 7 знаков)
-            date: Дата в формате YYYY-MM-DD
-
-        Returns:
-            201 Created со ссылкой на созданный ресурс в заголовке Location.
+        Читает form-data из тела запроса:
+            expense_name, category, amount, date
 
         Raises:
-            HTTPStatus.BAD_REQUEST: При невалидных данных.
-            HTTPStatus.GATEWAY_TIMEOUT: При ошибке подключения к MongoDB.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
         """
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length).decode()
@@ -180,9 +123,6 @@ class Handler(BaseHTTPRequestHandler):
             "amount": data.get("amount", [""])[0],
             "date": data.get("date", [""])[0],
         }
-        if not validate_expense_data(new):
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            return
         try:
             result = self.expenses.insert_one(new)
             self.send_response(HTTPStatus.CREATED)
@@ -192,38 +132,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
 
     def update_expense(self, exp_id):
-        """Обновляет существующую трату.
+        """PUT /expenses/{id} — обновляет существующую трату.
 
         Args:
-            exp_id: ObjectId траты в строковом представлении.
+            exp_id (str): Строковое представление ObjectId документа.
 
-        Ожидает JSON в теле запроса с полями для обновления:
-            expense_name: Название траты (1-50 символов)
-            category: Категория (1-50 символов)
-            amount: Сумма (целое положительное число до 7 знаков)
-            date: Дата в формате YYYY-MM-DD
-
-        Returns:
-            200 OK при успешном обновлении.
+        Body (JSON):
+            Любые поля для обновления: expense_name, category, amount, date.
 
         Raises:
-            HTTPStatus.BAD_REQUEST: При невалидных данных или ID.
-            HTTPStatus.NOT_FOUND: Если трата не найдена.
-            HTTPStatus.GATEWAY_TIMEOUT: При ошибке подключения к MongoDB.
+            HTTPStatus.BAD_REQUEST: Некорректный JSON или ID.
+            HTTPStatus.NOT_FOUND: Документ для обновления не найден.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
         """
-        length = int(self.headers.get("Content-Length", 0))
-        payload = self.rfile.read(length).decode()
         try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = self.rfile.read(length).decode()
             update = json.loads(payload)
-        except Exception:
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            self.end_headers()
-            return
-        if not validate_expense_data(update):
-            self.send_error(HTTPStatus.BAD_REQUEST)
-            self.end_headers()
-            return
-        try:
             result = self.expenses.update_one(
                 {"_id": ObjectId(exp_id)},
                 {"$set": update},
@@ -242,18 +167,15 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def delete_expense(self, exp_id):
-        """Удаляет трату.
+        """DELETE /expenses/{id} — удаляет трату.
 
         Args:
-            exp_id: ObjectId траты в строковом представлении.
-
-        Returns:
-            204 No Content при успешном удалении.
+            exp_id (str): Строковое представление ObjectId документа.
 
         Raises:
-            HTTPStatus.BAD_REQUEST: При некорректном формате ID.
-            HTTPStatus.NOT_FOUND: Если трата не найдена.
-            HTTPStatus.GATEWAY_TIMEOUT: При ошибке подключения к MongoDB.
+            HTTPStatus.BAD_REQUEST: Некорректный ID.
+            HTTPStatus.NOT_FOUND: Документ не найден.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
         """
         try:
             result = self.expenses.delete_one({"_id": ObjectId(exp_id)})
@@ -271,18 +193,14 @@ class Handler(BaseHTTPRequestHandler):
     # ---------- Статистика по категориям ----------------------------
 
     def get_categories_by_month(self, params):
-        """Возвращает список уникальных категорий трат за указанный месяц.
+        """GET /categories?month={MM} — список категорий за указанный месяц.
 
         Args:
-            params: Словарь с параметрами запроса.
-                Обязательный параметр month: номер месяца (01-12).
-
-        Returns:
-            JSON-массив с уникальными названиями категорий.
+            params (dict): Параметры запроса, ключ 'month' обязателен.
 
         Raises:
-            HTTPStatus.BAD_REQUEST: Если не указан параметр month.
-            HTTPStatus.GATEWAY_TIMEOUT: При ошибке подключения к MongoDB.
+            HTTPStatus.BAD_REQUEST: Если параметр month отсутствует.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
         """
         month = params.get("month", [None])[0]
         if not month:
@@ -299,24 +217,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
 
     def get_top_category(self, params):
-        """Возвращает категорию с наибольшей суммой трат за месяц.
+        """GET /categories/top?month={MM} — самая затратная категория месяца.
 
         Args:
-            params: Словарь с параметрами запроса.
-                Обязательный параметр month: номер месяца (01-12).
-
-        Returns:
-            JSON с информацией о категории:
-                category: Название категории
-                total_amount: Общая сумма трат
-                expense_name: Название самой крупной траты
-                amount: Сумма самой крупной траты
-                date: Дата самой крупной траты
+            params (dict): Параметры запроса, ключ 'month' обязателен.
 
         Raises:
-            HTTPStatus.BAD_REQUEST: Если не указан параметр month.
-            HTTPStatus.NO_CONTENT: Если нет трат за указанный месяц.
-            HTTPStatus.GATEWAY_TIMEOUT: При ошибке подключения к MongoDB.
+            HTTPStatus.BAD_REQUEST: Если параметр month отсутствует.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
         """
         month = params.get("month", [None])[0]
         if not month:
@@ -355,26 +263,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.GATEWAY_TIMEOUT)
 
     def get_expenses_by_category(self, category, params):
-        """Возвращает траты в указанной категории за месяц.
+        """GET /categories/{category}/expenses?month={MM}[&biggest=true].
 
         Args:
-            category: Название категории (URL-декодированное).
-            params: Словарь с параметрами запроса.
-                Обязательный параметр month: номер месяца (01-12).
-                Опциональный параметр biggest: если true, возвращает
-                    только самую крупную трату.
-
-        Returns:
-            При biggest=false: JSON-массив со всеми тратами.
-            При biggest=true: JSON с информацией о самой крупной трате:
-                expense_name: Название траты
-                amount: Сумма
-                date: Дата
+            category (str): Название категории (URL-decoded).
+            params (dict): Параметры запроса, 'month' обязателен,
+                'biggest' опционален.
 
         Raises:
-            HTTPStatus.BAD_REQUEST: Если не указан параметр month.
-            HTTPStatus.NO_CONTENT: Если нет трат в категории за месяц.
-            HTTPStatus.GATEWAY_TIMEOUT: При ошибке подключения к MongoDB.
+            HTTPStatus.BAD_REQUEST: Если параметр month отсутствует.
+            ServerSelectionTimeoutError: Ошибка подключения к MongoDB.
         """
         month = params.get("month", [None])[0]
         if not month:
@@ -408,17 +306,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---------- HTTP-маршрутизация ------------------------------------
 
     def do_GET(self):
-        """Обрабатывает HTTP GET-запросы.
-
-        Поддерживаемые пути:
-            / - главная страница (HTML)
-            /static/* - статические файлы (CSS, JS, изображения)
-            /expenses - список всех трат
-            /expenses/{id} - информация о трате
-            /categories?month={MM} - список категорий
-            /categories/top?month={MM} - топ категория
-            /categories/{category}/expenses?month={MM} - траты в категории
-        """
+        """Маршрутизирует HTTP GET-запросы к соответствующим методам."""
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         params = urllib.parse.parse_qs(parsed.query)
@@ -467,22 +355,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
-        """Обрабатывает HTTP POST-запросы.
-
-        Поддерживаемые пути:
-            /expenses - создание новой траты
-        """
+        """Маршрутизирует HTTP POST-запросы к соответствующим методам."""
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/expenses":
             return self.create_expense()
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_PUT(self):
-        """Обрабатывает HTTP PUT-запросы.
-
-        Поддерживаемые пути:
-            /expenses/{id} - обновление траты
-        """
+        """Маршрутизирует HTTP PUT-запросы к соответствующим методам."""
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path.startswith("/expenses/"):
             exp_id = parsed.path.split("/")[2]
@@ -490,11 +370,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_DELETE(self):
-        """Обрабатывает HTTP DELETE-запросы.
-
-        Поддерживаемые пути:
-            /expenses/{id} - удаление траты
-        """
+        """Маршрутизирует HTTP DELETE-запросы к соответствующим методам."""
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path.startswith("/expenses/"):
             exp_id = parsed.path.split("/")[2]
@@ -503,15 +379,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def run(server_class=HTTPServer, handler_class=Handler):
-    """Запускает HTTP-сервер.
-
-    Args:
-        server_class: Класс HTTP-сервера (по умолчанию HTTPServer).
-        handler_class: Класс обработчика запросов (по умолчанию Handler).
-
-    Сервер запускается на localhost:8000 и работает до прерывания
-    процесса (Ctrl+C).
-    """
+    """Запускает HTTP-сервер на `localhost:8000`."""
     server_address = ("", 8000)
     httpd = server_class(server_address, handler_class)
     print("Сервер запущен на http://localhost:8000")
